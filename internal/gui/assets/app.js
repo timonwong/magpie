@@ -8050,7 +8050,7 @@ function drawEditor(p, presetID) {
   // a server on this machine (Ollama, LM Studio, oMLX) can listen on another
   // port, or be another computer's: its address moves each URL, each API
   // keeping its path, as provider.AtAddress does when it is saved
-  let address = null, addressWas = "";
+  let address = null, addressWas = "", addressMore = null;
   if (pr?.kind === "local") {
     // a saved provider's URLs (or a duplicate's) start it; a new one's are
     // the preset's, sent as none so the gateway takes the preset's
@@ -8070,7 +8070,14 @@ function drawEditor(p, presetID) {
     };
     const keys = address.onkeydown;
     address.onkeydown = (e) => { keys(e); if (e.key === "Enter" && isNew) save(); };
-    ed.append(...field(t("Address"), address, t("Where the server listens; change the port, or give another computer's address")));
+    // folded: most run where the preset says; open for one that doesn't,
+    // or an address typed before the editor was drawn again
+    addressMore = el("details", "more");
+    addressMore.open = (own && originOf(from) !== originOf(pr)) || draft.address.trim() !== addressWas;
+    addressMore.append(el("summary", "", t("Server address")));
+    const inner = el("div", "inner");
+    inner.append(...field(t("Address"), address, t("Where the server listens; change the port, or give another computer's address")));
+    addressMore.append(inner);
   }
 
   // null, not false, when there is none: false?.key is undefined, and a
@@ -8131,6 +8138,7 @@ function drawEditor(p, presetID) {
   if (p?.keyList?.length) ed.append(...field(t("Accounts"), renderKeyAccounts(p), p.routing ? t("Tick every key to use; Routing says how requests spread over them.") : t("Tick every key to use. Requests go to the first; when it runs out of quota or hits a rate limit, the next ticked key takes over.")));
   if (p?.keyList?.filter((k) => k.on).length > 1) ed.append(...renderRouting(p));
   else ed.append(...field(t("API key"), keyWrap, isNew ? t("Kept in ~/.config/magpie/providers.json, readable by you alone. Nothing is read from your shell.") : ""));
+  if (addressMore) ed.append(addressMore);
 
   // A user-defined provider can have its own picture; presets keep theirs.
   if (custom) ed.append(...field(t("Icon"), iconPicker(ed), ""));
@@ -8481,7 +8489,7 @@ function drawEditor(p, presetID) {
       // sent only when changed: a saved one's URLs set apart (another app's,
       // the CLI's) aren't moved by a Save that left the address alone
       const a = (draft.address || "").trim();
-      if (a && localAddress(a) === null) { address.focus({ preventScroll: true }); return editorError(t("Address: {v} isn't an address like http://localhost:11434", { v: a }), "warn"); }
+      if (a && localAddress(a) === null) { addressMore.open = true; address.focus({ preventScroll: true }); return editorError(t("Address: {v} isn't an address like http://localhost:11434", { v: a }), "warn"); }
       if (a && a !== addressWas) body.address = a;
     }
     editorError("");

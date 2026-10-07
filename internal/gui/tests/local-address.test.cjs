@@ -1,7 +1,10 @@
 // Run with Node's test runner and Playwright on the module path; see README.md.
 // A server on this machine (Ollama, LM Studio, oMLX) is reached at another
-// port, or on another computer, by its Address: empty with the preset's as
-// its placeholder when it is added, the saved one's when it is edited. The
+// port, or on another computer, by its Address, under the key in a Server
+// address section that is folded unless the provider is somewhere other
+// than the preset's default, or an address typed or refused needs it open.
+// The Address is empty with the preset's as its placeholder when it is
+// added, the saved one's when it is edited. The
 // Endpoints follow what is typed, each API keeping its path; Add sends the
 // address for the gateway to put the preset's URLs at, an edit sends its
 // URLs moved there, and a Save that left it alone sends no address. One that
@@ -19,6 +22,7 @@ const assets = path.resolve(__dirname, "../assets");
 const presets = [
   { id: "openai", name: "OpenAI", icon: "openai", kind: "vendor", chat: "https://api.openai.com/v1", added: false },
   { id: "ollama", name: "Ollama", icon: "ollama", kind: "local", chat: "http://localhost:11434/v1", anthropic: "http://localhost:11434", noKey: true, note: "your local models", added: false },
+  { id: "lmstudio", name: "LM Studio", icon: "lmstudio", kind: "local", chat: "http://localhost:1234/v1", noKey: true, note: "local server, port 1234 by default", added: true },
   { id: "omlx", name: "oMLX", icon: "omlx", kind: "local", chat: "http://localhost:8000/v1", responses: "http://localhost:8000/v1", anthropic: "http://localhost:8000", noKey: true, note: "local server, port 8000 by default", added: true },
 ];
 const base = {
@@ -29,10 +33,12 @@ const base = {
 // an oMLX on another computer, and one whose URLs were set apart (another
 // app's import): its Anthropic URL on another host than its chat one
 const studio = { ...base, id: "omlx", name: "oMLX", icon: "omlx", preset: "omlx", host: "192.168.1.5:8000", chat: "http://192.168.1.5:8000/v1", responses: "http://192.168.1.5:8000/v1", anthropic: "http://192.168.1.5:8000" };
+// an LM Studio where the preset puts it
+const home = { ...base, id: "lmstudio", name: "LM Studio", icon: "lmstudio", preset: "lmstudio", host: "localhost:1234", chat: "http://localhost:1234/v1" };
 const apart = { ...base, id: "omlx-2", name: "oMLX Apart", icon: "omlx", preset: "omlx", host: "10.0.0.2:8000", chat: "http://10.0.0.2:8000/v1", anthropic: "http://10.0.0.3:9000" };
 
 function server(lang, saves) {
-  const list = { providers: [studio, apart], presets, excluded: [], gateway: { running: true, window: true } };
+  const list = { providers: [studio, apart, home], presets, excluded: [], gateway: { running: true, window: true } };
   return async (route) => {
     const url = new URL(route.request().url());
     const json = (data) => route.fulfill({ json: data });
@@ -54,10 +60,10 @@ function server(lang, saves) {
 }
 
 const L = {
-  en: { field: "Address", hint: "Where the server listens; change the port, or give another computer's address", bad: "Address: ftp://box isn't an address like http://localhost:11434", add: "Add", save: "Save" },
-  zh: { field: "地址", hint: "服务监听的地址；可改端口，或填另一台电脑的地址", bad: "地址：ftp://box 不是形如 http://localhost:11434 的地址", add: "添加", save: "保存" },
-  ja: { field: "アドレス", hint: "サーバーが待ち受けるアドレスです。ポートを変えるか、別のコンピューターのアドレスを入力します", bad: "アドレス：ftp://box は http://localhost:11434 のようなアドレスではありません", add: "追加", save: "保存" },
-  de: { field: "Adresse", hint: "Wo der Server lauscht; ändern Sie den Port oder geben Sie die Adresse eines anderen Computers an", bad: "Adresse: ftp://box ist keine Adresse wie http://localhost:11434", add: "Hinzufügen", save: "Speichern" },
+  en: { more: "Server address", field: "Address", hint: "Where the server listens; change the port, or give another computer's address", bad: "Address: ftp://box isn't an address like http://localhost:11434", add: "Add", save: "Save" },
+  zh: { more: "服务器地址", field: "地址", hint: "服务监听的地址；可改端口，或填另一台电脑的地址", bad: "地址：ftp://box 不是形如 http://localhost:11434 的地址", add: "添加", save: "保存" },
+  ja: { more: "サーバーアドレス", field: "アドレス", hint: "サーバーが待ち受けるアドレスです。ポートを変えるか、別のコンピューターのアドレスを入力します", bad: "アドレス：ftp://box は http://localhost:11434 のようなアドレスではありません", add: "追加", save: "保存" },
+  de: { more: "Serveradresse", field: "Adresse", hint: "Wo der Server lauscht; ändern Sie den Port oder geben Sie die Adresse eines anderen Computers an", bad: "Adresse: ftp://box ist keine Adresse wie http://localhost:11434", add: "Hinzufügen", save: "Speichern" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -79,10 +85,14 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           const shot = async (name) => {
             if (!process.env.ARTIFACT_DIR) return;
             await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+            // the editor faded in after a Save's list, not caught halfway
+            await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
             await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `local-address-${engine}-${lang}-${width}-${name}.png`), fullPage: true });
           };
           const ed = page.locator(".editor");
           const address = ed.locator("input.address");
+          const more = ed.locator("details.more", { has: page.locator("input.address") });
+          const isOpen = () => more.evaluate((d) => d.open);
           const eps = async () => (await ed.locator(".eps code").allTextContents()).join(" ");
           const press = async (name) => {
             const n = saves.length;
@@ -91,24 +101,35 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             return saves.length > n ? saves.at(-1) : null;
           };
 
-          // added: empty, the preset's address its placeholder, above the key
+          // added: folded under the key, Server address its summary
           await page.locator("#addProvider").click();
           await page.locator("#addSheet .tile .n", { hasText: /^Ollama$/ }).click();
           await ed.locator(".ehead b", { hasText: "Ollama" }).waitFor();
+          assert.equal(await isOpen(), false, "folded when added");
+          assert.equal(await address.isVisible(), false);
+          const summary = more.locator("summary");
+          assert.equal(await summary.textContent(), w.more);
+          const key = ed.locator("input[type=password]").first();
+          assert((await key.boundingBox()).y < (await summary.boundingBox()).y, "the section under the key");
+          await shot("folded");
+          // opened: empty, the preset's address its placeholder
+          await summary.click();
+          assert.equal(await address.isVisible(), true);
           assert.equal(await ed.locator("label", { hasText: new RegExp("^" + w.field + "$") }).count(), 1);
           assert.equal(await address.inputValue(), "");
           assert.equal(await address.getAttribute("placeholder"), "http://localhost:11434");
           assert.equal(await address.locator("xpath=following-sibling::div[contains(@class,'hint')]").textContent(), w.hint);
-          const key = ed.locator("input[type=password]").first();
-          assert((await address.boundingBox()).y < (await key.boundingBox()).y, "the address above the key");
           const box = await address.boundingBox();
           assert(box.width >= 200 && box.x + box.width <= width, `the field keeps its width: ${JSON.stringify(box)}`);
           assert.equal(await eps(), "http://localhost:11434/v1 http://localhost:11434");
 
-          // no address: said, focused, nothing sent, the page where it was
+          // no address: said, opened, focused, nothing sent, the page where it was
           await address.fill("ftp://box");
+          await summary.click();
+          assert.equal(await isOpen(), false);
           const y = await page.evaluate(() => document.scrollingElement.scrollTop);
           assert.equal(await press(w.add), null);
+          assert.equal(await isOpen(), true, "opened for the refused address");
           assert.equal(await ed.locator(".editor-error").textContent(), w.bad);
           assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("address")), true);
           assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), y);
@@ -127,6 +148,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           // edited: the address it is at; left alone, none is sent
           await page.locator(".row.provider", { hasText: /^oMLX$|oMLX(?! Apart)/ }).first().click();
           await ed.locator(".ehead b", { hasText: /^oMLX$/ }).waitFor();
+          assert.equal(await isOpen(), true, "open for an address not the preset's");
           assert.equal(await address.inputValue(), "http://192.168.1.5:8000");
           let s = await press(w.save);
           assert.equal(s.address, undefined);
@@ -147,11 +169,21 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           // URLs set apart, saved with the address untouched, stay apart
           await page.locator(".row.provider", { hasText: "oMLX Apart" }).click();
           await ed.locator(".ehead b", { hasText: "oMLX Apart" }).waitFor();
+          assert.equal(await isOpen(), true);
           assert.equal(await address.inputValue(), "http://10.0.0.2:8000");
           s = await press(w.save);
           assert.equal(s.address, undefined);
           assert.equal(s.chat, "http://10.0.0.2:8000/v1");
           assert.equal(s.anthropic, "http://10.0.0.3:9000");
+
+          // one where the preset puts it: folded, and saved as it is
+          await page.locator(".row.provider", { hasText: "LM Studio" }).click();
+          await ed.locator(".ehead b", { hasText: "LM Studio" }).waitFor();
+          assert.equal(await isOpen(), false, "folded at the preset's address");
+          assert.equal(await address.inputValue(), "http://localhost:1234");
+          s = await press(w.save);
+          assert.equal(s.address, undefined);
+          assert.equal(s.chat, "http://localhost:1234/v1");
 
           // a vendor's preset has no address
           await page.locator("#addProvider").click();
