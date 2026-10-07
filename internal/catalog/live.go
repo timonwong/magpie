@@ -86,11 +86,79 @@ func LiveVideomakers(provider string) []Model {
 	return out
 }
 
-// Chat is ms without the models that draw or make videos.
+// LiveRetrievers are the embedding and rerank models in the provider's
+// fetched list, in the list's order.
+func LiveRetrievers(provider string) []Model {
+	f, err := readLive(provider)
+	if err != nil {
+		return nil
+	}
+	var out []Model
+	for _, m := range f.Models {
+		if m.Retrieval != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// What a retrieval model is for (Model.Retrieval): /v1/embeddings or
+// /v1/rerank.
+const (
+	Embedding = "embedding"
+	Rerank    = "rerank"
+)
+
+// RetrievalID is what a model's id names it for, Embedding or Rerank, for
+// a list that doesn't say: "" for any other. Beside the ids that say
+// embed or rerank, the families that make only embeddings (bge, gte, e5,
+// m3e, Voyage's) are known by their names' starts, so a chat model whose
+// name merely holds those letters stays one.
+func RetrievalID(id string) string {
+	id = strings.ToLower(id)
+	if strings.Contains(id, "rerank") {
+		return Rerank
+	}
+	if strings.Contains(id, "embed") {
+		return Embedding
+	}
+	base := id[strings.LastIndex(id, "/")+1:]
+	for _, family := range []string{"bge-", "gte-", "e5-", "multilingual-e5", "m3e-", "voyage-"} {
+		if strings.HasPrefix(base, family) {
+			return Embedding
+		}
+	}
+	return ""
+}
+
+// retrievalOf is what a list's row is for, Embedding or Rerank: as the
+// vendor's list says where it does (another magpie's kind, Together's
+// type, OpenRouter's output modality), else as its id names it.
+func retrievalOf(r liveModel, id string) string {
+	for _, said := range []any{r.Kind, r.Type} {
+		switch said {
+		case "embedding", "embeddings":
+			return Embedding
+		case "rerank", "reranker":
+			return Rerank
+		}
+	}
+	if a, ok := r.Architecture.(map[string]any); ok {
+		out, _ := a["output_modalities"].([]any)
+		for _, o := range out {
+			if o == "embeddings" || o == "embedding" {
+				return Embedding
+			}
+		}
+	}
+	return RetrievalID(id)
+}
+
+// Chat is ms without the models that draw, make videos, embed or rerank.
 func Chat(ms []Model) []Model {
 	out := make([]Model, 0, len(ms))
 	for _, m := range ms {
-		if !m.Draws && !m.Films {
+		if !m.Draws && !m.Films && m.Retrieval == "" {
 			out = append(out, m)
 		}
 	}
@@ -286,11 +354,16 @@ func fetchOne(ctx context.Context, url, key string, anthropic bool, headers map[
 		if id == "" {
 			continue
 		}
-		// a model that draws is kept, marked, for Settings → Images; any
-		// other that isn't for text (embeddings, speech) is left out
+		// a model that draws is kept, marked, for Settings → Images, and
+		// one that embeds or reranks for routing groups; any other that
+		// isn't for text (speech, moderation) is left out
 		films := r.Kind == "video"
-		drawer := !films && (DrawsID(id) && !strings.Contains(strings.ToLower(id), "deep-research") || r.Kind == "image")
-		if !drawer && !films && !textModel(mdModel{ID: id}) {
+		var retrieval string
+		if !films {
+			retrieval = retrievalOf(r, id)
+		}
+		drawer := !films && retrieval == "" && (DrawsID(id) && !strings.Contains(strings.ToLower(id), "deep-research") || r.Kind == "image")
+		if !drawer && !films && retrieval == "" && !textModel(mdModel{ID: id}) {
 			continue
 		}
 		name := r.DisplayName
@@ -308,7 +381,7 @@ func fetchOne(ctx context.Context, url, key string, anthropic bool, headers map[
 		if len(apis) == 0 {
 			apis = targetAPIs(r.TypeTarget)
 		}
-		m := Model{ID: id, Name: name, ImageInput: input, APIs: apis, Draws: drawer, Films: films}
+		m := Model{ID: id, Name: name, ImageInput: input, APIs: apis, Draws: drawer, Films: films, Retrieval: retrieval}
 		if n, ok := r.ContextLength.(float64); ok && n > 0 {
 			m.Context = int(n)
 		}
@@ -381,6 +454,12 @@ type liveModel struct {
 	// with
 	Label string `json:"magpie_label"`
 	Kind  string `json:"kind"`
+	// what the model is, where the vendor says: Together's "type"
+	// ("chat", "embedding", "rerank"), OpenRouter's architecture's
+	// output_modalities (["embeddings"]); any, as a vendor's odd value
+	// mustn't lose the whole list
+	Type         any `json:"type"`
+	Architecture any `json:"architecture"`
 	// how another magpie searches the web for the model: "native" or
 	// "magpie" (Model.WebSearch)
 	WebSearch string `json:"web_search"`

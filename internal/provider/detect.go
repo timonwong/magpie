@@ -286,7 +286,9 @@ func (p Provider) detectModels(ctx context.Context) []string {
 	if err != nil {
 		return nil
 	}
-	for _, m := range ms {
+	// a chat is what is asked: not an embedding or rerank model the list
+	// keeps beside them
+	for _, m := range catalog.Chat(ms) {
 		ids = append(ids, m.ID)
 	}
 	return ids

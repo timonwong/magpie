@@ -84,7 +84,8 @@ func PatternMatches(pattern, id string) bool {
 // matchesIn are the models g's patterns match among entries — the models
 // served now, never a group — in the catalog's order, but those the group
 // names itself: a model named at an effort of its own is not matched again
-// at the group's.
+// at the group's. A pattern finds models to talk to: an embedding or
+// rerank model ("openrouter/*" has them) is only ever named.
 func matchesIn(entries []Entry, g Group) []string {
 	if len(g.Match) == 0 {
 		return nil
@@ -102,7 +103,7 @@ func matchesIn(entries []Entry, g Group) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if named[e.ID] || slices.Contains(out, e.ID) {
+		if named[e.ID] || e.Retrieval != "" || slices.Contains(out, e.ID) {
 			continue
 		}
 		if slices.ContainsFunc(res, func(x *regexp.Regexp) bool { return x.MatchString(e.ID) }) {
@@ -172,7 +173,7 @@ func PatternHits(g Group) []PatternHit {
 		h := PatternHit{Pattern: p}
 		if x, err := compilePattern(p); err == nil {
 			for _, e := range entries {
-				if x.MatchString(e.ID) {
+				if e.Retrieval == "" && x.MatchString(e.ID) {
 					h.Models++
 				}
 			}

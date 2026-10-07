@@ -68,6 +68,10 @@ type Model struct {
 	// with (a Remote magpie's Grok Imagine Video): kept with the list for
 	// its videos API, never offered as a model to talk to or draw with.
 	Films bool `json:",omitempty"`
+	// Retrieval is set on a vendor-listed model for /v1/embeddings or
+	// /v1/rerank (Embedding, Rerank): kept with the list for routing
+	// groups, never offered to agents as a model to talk to.
+	Retrieval string `json:",omitempty"`
 	// Free is set on a model a subscription serves at no cost to its
 	// allowance: WorkBuddy's "credits": "x0.00".
 	Free bool `json:",omitempty"`

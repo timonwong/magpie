@@ -149,6 +149,21 @@ func (p Provider) live() ([]catalog.Model, time.Time, bool) {
 	return l.ms, l.at, l.ok
 }
 
+// retrievers are the embedding and rerank models of the list last
+// fetched from the vendor (catalog.LiveRetrievers).
+func (p Provider) retrievers() []catalog.Model {
+	if p.IsPlugin() {
+		return nil
+	}
+	return heldOf("retrievers:"+p.ID, func() []catalog.Model { return slices.Clip(catalog.LiveRetrievers(p.ID)) })
+}
+
+// retrieves is whether the vendor's list has id as an embedding or
+// rerank model.
+func (p Provider) retrieves(id string) bool {
+	return slices.ContainsFunc(p.retrievers(), func(m catalog.Model) bool { return m.ID == id })
+}
+
 // Fetch asks the vendor which models it serves and remembers the answer.
 func (p Provider) Fetch(ctx context.Context) ([]catalog.Model, error) {
 	ms, _, err := p.Refetch(ctx)
@@ -196,6 +211,7 @@ func liveIDs(id string) map[string]bool {
 	ms, _, _ := catalog.Live(id)
 	ms = append(ms, catalog.LiveDrawers(id)...)
 	ms = append(ms, catalog.LiveVideomakers(id)...)
+	ms = append(ms, catalog.LiveRetrievers(id)...)
 	out := make(map[string]bool, len(ms))
 	for _, m := range ms {
 		out[m.ID] = true
@@ -615,6 +631,7 @@ func (p Provider) fetchPerKey(ctx context.Context, keys []KeyAccount) ([]catalog
 	old, _, _ := catalog.Live(p.ID)
 	old = append(old, catalog.LiveDrawers(p.ID)...)
 	old = append(old, catalog.LiveVideomakers(p.ID)...)
+	old = append(old, catalog.LiveRetrievers(p.ID)...)
 	var out []catalog.Model
 	at := map[string]int{}
 	add := func(m catalog.Model, id string) {
@@ -719,6 +736,11 @@ func (p Provider) Exposed() []catalog.Model {
 		for _, id := range ids {
 			if m, ok := byID[id]; ok {
 				out = append(out, m)
+			} else if p.retrieves(id) {
+				// typed in, as one had to before the list kept them: an
+				// embedding or rerank model is routing groups', not
+				// agents' (buildEntries)
+				continue
 			} else {
 				// with the levels the gateway fits an effort to (Known),
 				// not the none effortsOf takes a vendor's word for: the
@@ -1087,26 +1109,97 @@ type Entry struct {
 	// multi-agent V2 for it, so Ultra hands work to its agents, whose
 	// tasks a magpie-served lead writes as text.
 	AgentsV2 bool `json:"-"`
+	// Retrieval is set on a model for /v1/embeddings or /v1/rerank, as
+	// its vendor's list marks it (catalog.Embedding, catalog.Rerank), and
+	// on a group of only such models: routing groups have it, agents are
+	// never offered it to talk to (Catalog).
+	Retrieval string `json:"retrieval,omitempty"`
 }
 
 // Catalog lists the routing groups, then every exposed model of every ready
-// provider not kept unlisted. A provider switched off has none in it.
+// provider not kept unlisted. A provider switched off has none in it, and
+// a model for embeddings or rerank, or a group of them, isn't one to talk
+// to.
 func Catalog() []Entry {
 	entries := providerEntries()
-	out := groupEntries(entries)
+	var out []Entry
+	for _, e := range groupEntries(entries) {
+		if e.Retrieval == "" {
+			out = append(out, e)
+		}
+	}
 	for _, e := range entries {
-		if !e.Provider.Unlisted {
+		if !e.Provider.Unlisted && e.Retrieval == "" {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// Served is the catalog with the unlisted providers' models as well: every
-// model a routing group can be made of, or a request can name.
+// Served is the catalog with the unlisted providers' models as well, and
+// the embedding and rerank models (Entry.Retrieval): every model a routing
+// group can be made of, or a request can name.
 func Served() []Entry {
 	entries := providerEntries()
 	return append(groupEntries(entries), entries...)
+}
+
+// Retrievers are the embedding and rerank models Served has and Catalog
+// doesn't, and the groups of only them.
+func Retrievers() []Entry {
+	var out []Entry
+	for _, e := range Served() {
+		if e.Retrieval != "" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// Retrieves is what a model or group id an agent sent is for when it is
+// for /v1/embeddings or /v1/rerank (Entry.Retrieval), "" for a model to
+// talk to or one magpie doesn't know.
+func Retrieves(id string) string {
+	id = strings.TrimSuffix(strings.TrimSpace(id), "[1m]")
+	entries := providerEntries()
+	if _, ok := GroupIDOf(id); ok {
+		_, ms, ok := FindGroup(id)
+		if !ok {
+			return ""
+		}
+		return membersRetrieval(entries, ms)
+	}
+	p, model, ok := resolveIn(entries, id)
+	if !ok {
+		return ""
+	}
+	return retrievalIn(entries, p.ID, model)
+}
+
+// retrievalIn is the provider's model's Entry.Retrieval among entries.
+func retrievalIn(entries []Entry, pid, model string) string {
+	for _, e := range entries {
+		if e.Provider.ID == pid && e.Model == model {
+			return e.Retrieval
+		}
+	}
+	return ""
+}
+
+// membersRetrieval is a group's Entry.Retrieval: its first member's, when
+// every member is for embeddings or rerank; else "", a group to talk to.
+func membersRetrieval(entries []Entry, ms []Member) string {
+	kind := ""
+	for i, m := range ms {
+		k := retrievalIn(entries, m.Provider.ID, m.Model)
+		if k == "" {
+			return ""
+		}
+		if i == 0 {
+			kind = k
+		}
+	}
+	return kind
 }
 
 // Unlisted are the models Served has and Catalog doesn't: those of the
@@ -1115,7 +1208,7 @@ func Served() []Entry {
 func Unlisted() []Entry {
 	var out []Entry
 	for _, e := range providerEntries() {
-		if e.Provider.Unlisted {
+		if e.Provider.Unlisted && e.Retrieval == "" {
 			out = append(out, e)
 		}
 	}
@@ -1134,13 +1227,33 @@ func buildEntries() []Entry {
 		if !p.On() || p.DecideOnly() { // a dedicated decision API only routes
 			continue
 		}
+		from := len(out)
 		for _, m := range p.Exposed() {
 			if !p.DecidesModel(m.ID) {
 				out = append(out, entryFor(p, m, s))
 			}
 		}
+		// the vendor's embedding and rerank models, every one: a routing
+		// group can have them, though agents are offered none (Catalog)
+		for _, m := range p.retrievers() {
+			if !slices.ContainsFunc(out[from:], func(e Entry) bool { return e.Model == m.ID }) {
+				out = append(out, retrievalEntry(p, m, s))
+			}
+		}
 	}
 	return out
+}
+
+// retrievalEntry is a provider's embedding or rerank model as the catalog
+// carries it: named as the user named it, with no levels or images to tell
+// an agent of.
+func retrievalEntry(p Provider, m catalog.Model, s settings.Settings) Entry {
+	name := cmp.Or(m.Name, m.ID)
+	e := Entry{ID: p.ID + "/" + m.ID, Model: m.ID, Family: p.Family, Name: name, Provider: p, Context: m.Context, Retrieval: m.Retrieval}
+	if n, ok := modelNameIn(s.ModelNames, p.ID, m.ID); ok {
+		e.Name, e.Default = n, name
+	}
+	return e
 }
 
 // entryFor is one of a provider's models as the catalog carries it: the
@@ -1237,7 +1350,9 @@ func Resolve(id string) (Provider, string, bool) {
 	// asking, but a value in its settings still has it
 	id = strings.TrimSuffix(strings.TrimSpace(id), "[1m]")
 	if strings.HasPrefix(id, GroupPrefix) {
-		for _, e := range Catalog() {
+		// a group of embedding or rerank models too, which Catalog leaves
+		// out, for /v1/embeddings and /v1/rerank
+		for _, e := range groupEntries(providerEntries()) {
 			if e.ID == id {
 				return e.Provider, e.Model, true
 			}

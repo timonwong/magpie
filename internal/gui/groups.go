@@ -99,6 +99,9 @@ type modelRef struct {
 	// sent only when true
 	Images        bool `json:"images,omitempty"`
 	ImagesUnknown bool `json:"imagesUnknown,omitempty"`
+	// Kind: "embedding" or "rerank" on a model for /v1/embeddings or
+	// /v1/rerank (provider.Entry.Retrieval), which agents don't chat with
+	Kind string `json:"kind,omitempty"`
 }
 
 type poolJSON struct {
@@ -177,7 +180,12 @@ func groupsState() groupsJSON {
 	served := provider.Served()
 	for _, e := range served {
 		if e.Group == "" {
-			out.Models = append(out.Models, modelRef{ID: e.ID, Name: e.Name, Provider: e.Provider.ID, PName: e.Provider.Name, Icon: e.Provider.Icon, Context: e.Context, Efforts: e.Efforts, CanFast: provider.CanFast(e.Provider, e.Model), Images: seesImages(e), ImagesUnknown: imagesUnknown(e)})
+			m := modelRef{ID: e.ID, Name: e.Name, Provider: e.Provider.ID, PName: e.Provider.Name, Icon: e.Provider.Icon, Context: e.Context, Efforts: e.Efforts, CanFast: provider.CanFast(e.Provider, e.Model), Images: seesImages(e), ImagesUnknown: imagesUnknown(e)}
+			if e.Retrieval != "" {
+				// no images to say anything of: it takes no chat
+				m.Kind, m.Images, m.ImagesUnknown = e.Retrieval, false, false
+			}
+			out.Models = append(out.Models, m)
 		}
 	}
 	for _, g := range provider.Groups() {

@@ -506,7 +506,7 @@ func settingsState() settingsJSON {
 	s.CheckinPlugins = provider.PluginCheckins()
 	s.VisionAuto, s.VisionModels = gateway.AutoVision(), []modelRef{}
 	for _, e := range provider.Served() {
-		if e.Images && (e.ImageInput == nil || *e.ImageInput) && (e.Group != "" || e.Provider.Ready()) {
+		if e.Images && (e.ImageInput == nil || *e.ImageInput) && (e.Group != "" || e.Provider.Ready()) && e.Retrieval == "" {
 			m := modelRef{ID: e.ID, Name: e.Name, Provider: e.Provider.ID, PName: e.Provider.Name, Icon: e.Provider.Icon}
 			if e.Group != "" {
 				m.Provider, m.PName = "", e.Group
@@ -516,7 +516,7 @@ func settingsState() settingsJSON {
 	}
 	s.TitleModels = []modelRef{}
 	for _, e := range provider.Served() {
-		if e.Group != "" || e.Provider.Ready() && !e.Provider.DecideOnly() {
+		if e.Retrieval == "" && (e.Group != "" || e.Provider.Ready() && !e.Provider.DecideOnly()) {
 			m := modelRef{ID: e.ID, Name: e.Name, Provider: e.Provider.ID, PName: e.Provider.Name, Icon: e.Provider.Icon}
 			if e.Group != "" {
 				m.Provider, m.PName = "", e.Group
@@ -1220,7 +1220,7 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 			// Resolve intentionally accepts arbitrary names under a known
 			// provider. An approval reviewer must be a model or group magpie
 			// actually lists, including providers kept unlisted for routing.
-			if !slices.ContainsFunc(provider.Served(), func(e provider.Entry) bool { return e.ID == v }) {
+			if !slices.ContainsFunc(provider.Served(), func(e provider.Entry) bool { return e.ID == v && e.Retrieval == "" }) {
 				fail(rw, fmt.Errorf("no model %s for Codex's auto-review", v))
 				return
 			}

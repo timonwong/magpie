@@ -1303,6 +1303,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		turnedAway()
 		return
 	}
+	if kind := provider.Retrieves(asked); kind != "" {
+		// an embedding or rerank model, or a group of them: its vendor
+		// would only refuse the chat, and a group's every member rest for it
+		path := "/v1/embeddings"
+		if kind == "rerank" {
+			path = "/v1/rerank"
+		}
+		call.Status, call.Error = 400, "a "+kind+" model"
+		writeError(w, from, 400, fmt.Sprintf("%s is a %s model, not one to talk to; magpie serves it on %s", call.Model, kind, path))
+		turnedAway()
+		return
+	}
 	// a routing group's rules pick the member that goes first, looked at
 	// before any image is taken out of the request: one may be for images
 	g, ms, isGroup := provider.FindGroup(asked)

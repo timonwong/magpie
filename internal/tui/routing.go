@@ -184,16 +184,20 @@ func (m model) updateGroups(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // one with its first model.
 type pickMsg struct{ group, newGroup string }
 
-// memberOptions is every model and group magpie has, but those in skip.
+// memberOptions is every model and group magpie has, but those in skip:
+// those agents are offered, then the embedding and rerank ones.
 func memberOptions(skip []string, self string) []agent.Option {
 	var out []agent.Option
-	for _, e := range provider.Catalog() {
+	for _, e := range append(provider.Catalog(), provider.Retrievers()...) {
 		if slices.Contains(skip, e.ID) || e.ID == provider.GroupPrefix+self {
 			continue
 		}
 		note := e.Name
 		if e.Group != "" {
 			note = "group · " + e.Name
+		}
+		if e.Retrieval != "" {
+			note = e.Retrieval + " · " + note
 		}
 		out = append(out, agent.Option{Value: e.ID, Note: note})
 	}
