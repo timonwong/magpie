@@ -101,7 +101,7 @@ node --test --test-concurrency=1 internal/gui/tests/gateway-caller-keys.test.cjs
 unless the provider is away from the preset's default or an address typed or
 refused needs it open; empty with the preset's as its placeholder when
 added, the saved one's when edited, the Endpoints following what is typed,
-`address` sent only when it changed, and an address that isn't one said and
+the URLs sent moved only when it changed, and an address that isn't one said and
 focused with nothing sent. English, Chinese, Japanese and German, at 900px
 and 440px. Run with `node --test internal/gui/tests/local-address.test.cjs`.
 

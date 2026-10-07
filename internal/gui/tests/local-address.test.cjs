@@ -5,9 +5,9 @@
 // than the preset's default, or an address typed or refused needs it open.
 // The Address is empty with the preset's as its placeholder when it is
 // added, the saved one's when it is edited. The
-// Endpoints follow what is typed, each API keeping its path; Add sends the
-// address for the gateway to put the preset's URLs at, an edit sends its
-// URLs moved there, and a Save that left it alone sends no address. One that
+// Endpoints follow what is typed, each API keeping its path; Add or Save
+// sends the URLs moved there, and one that left it alone sends them as
+// before: none for a new one (the preset's), a saved one's own. One that
 // is no address is said, focused, and nothing is sent. A vendor's preset has
 // no Address. Nothing moves the page, and the field keeps its width at 440px.
 // English, Chinese, Japanese and German; no backend, the API is faked here.
@@ -135,15 +135,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await page.evaluate(() => document.scrollingElement.scrollTop), y);
 
           // another port: the Endpoints follow, each with its path, and the
-          // address goes with the Add, the URLs left to the preset's
+          // Add sends the preset's URLs moved there
           await address.fill("127.0.0.1:11435/v1");
           assert.equal(await eps(), "http://127.0.0.1:11435/v1 http://127.0.0.1:11435");
           await shot("add");
           const added = await press(w.add);
           assert.equal(added.preset, "ollama");
           assert.equal(added.new, true);
-          assert.equal(added.address, "127.0.0.1:11435/v1");
-          assert(!added.chat && !added.anthropic && !added.responses, JSON.stringify(added));
+          assert.equal("address" in added, false);
+          assert.equal(added.chat, "http://127.0.0.1:11435/v1");
+          assert.equal(added.anthropic, "http://127.0.0.1:11435");
+          assert(!added.responses, JSON.stringify(added));
 
           // edited: the address it is at; left alone, none is sent
           await page.locator(".row.provider", { hasText: /^oMLX$|oMLX(?! Apart)/ }).first().click();
@@ -151,17 +153,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await isOpen(), true, "open for an address not the preset's");
           assert.equal(await address.inputValue(), "http://192.168.1.5:8000");
           let s = await press(w.save);
-          assert.equal(s.address, undefined);
+          assert.equal("address" in s, false);
           assert.equal(s.chat, "http://192.168.1.5:8000/v1");
           assert.equal(s.anthropic, "http://192.168.1.5:8000");
 
-          // moved: its URLs there, and the address
+          // moved: its URLs there
           await page.locator(".row.provider", { hasText: /^oMLX$|oMLX(?! Apart)/ }).first().click();
           await address.fill("https://studio.local:8001");
           assert.equal(await eps(), "https://studio.local:8001/v1 https://studio.local:8001/v1 https://studio.local:8001");
           await shot("edit");
           s = await press(w.save);
-          assert.equal(s.address, "https://studio.local:8001");
+          assert.equal("address" in s, false);
           assert.equal(s.chat, "https://studio.local:8001/v1");
           assert.equal(s.responses, "https://studio.local:8001/v1");
           assert.equal(s.anthropic, "https://studio.local:8001");
@@ -172,7 +174,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await isOpen(), true);
           assert.equal(await address.inputValue(), "http://10.0.0.2:8000");
           s = await press(w.save);
-          assert.equal(s.address, undefined);
+          assert.equal("address" in s, false);
           assert.equal(s.chat, "http://10.0.0.2:8000/v1");
           assert.equal(s.anthropic, "http://10.0.0.3:9000");
 
@@ -182,8 +184,16 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal(await isOpen(), false, "folded at the preset's address");
           assert.equal(await address.inputValue(), "http://localhost:1234");
           s = await press(w.save);
-          assert.equal(s.address, undefined);
+          assert.equal("address" in s, false);
           assert.equal(s.chat, "http://localhost:1234/v1");
+
+          // added with no address: no URLs, the gateway takes the preset's
+          await page.locator("#addProvider").click();
+          await page.locator("#addSheet .tile .n", { hasText: /^Ollama$/ }).click();
+          await ed.locator(".ehead b", { hasText: "Ollama" }).waitFor();
+          s = await press(w.add);
+          assert.equal(s.preset, "ollama");
+          assert(!s.chat && !s.anthropic && !s.responses && !("address" in s), JSON.stringify(s));
 
           // a vendor's preset has no address
           await page.locator("#addProvider").click();

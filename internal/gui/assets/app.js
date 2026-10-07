@@ -7783,11 +7783,11 @@ function drawEditor(p, presetID) {
 
   // a server on this machine (Ollama, LM Studio, oMLX) can listen on another
   // port, or be another computer's: its address moves each URL, each API
-  // keeping its path, as provider.AtAddress does when it is saved
+  // keeping its path, as provider.AtAddress does
   let address = null, addressWas = "", addressMore = null;
   if (pr?.kind === "local") {
     // a saved provider's URLs (or a duplicate's) start it; a new one's are
-    // the preset's, sent as none so the gateway takes the preset's
+    // the preset's, sent as none unless moved, so the gateway takes them
     const own = draft.chat !== undefined;
     draft.addressFrom ??= { chat: draft.chat ?? pr.chat ?? "", responses: draft.responses ?? pr.responses ?? "", anthropic: draft.anthropic ?? pr.anthropic ?? "" };
     const from = draft.addressFrom;
@@ -8199,11 +8199,11 @@ function drawEditor(p, presetID) {
     if (isNew && custom && !body.chat && !body.anthropic && !body.responses && !body.decide) { url.focus(); return editorError(t("A base URL is needed"), "warn"); }
     if (endpoint && !body.chat && !body.responses) { endpoint.focus(); return editorError(t(pr.endpointNeeded || "Your resource's endpoint is needed"), "warn"); }
     if (address) {
-      // sent only when changed: a saved one's URLs set apart (another app's,
-      // the CLI's) aren't moved by a Save that left the address alone
+      // the URLs moved only when it changed: a saved one's set apart
+      // (another app's, the CLI's) aren't moved by a Save that left it alone
       const a = (draft.address || "").trim();
       if (a && localAddress(a) === null) { addressMore.open = true; address.focus({ preventScroll: true }); return editorError(t("Address: {v} isn't an address like http://localhost:11434", { v: a }), "warn"); }
-      if (a && a !== addressWas) body.address = a;
+      if (a && a !== addressWas) Object.assign(body, atAddress(draft.addressFrom, localAddress(a)));
     }
     editorError("");
     saving(saveBtn, t(isNew ? "Adding…" : "Saving…"));

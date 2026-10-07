@@ -900,10 +900,6 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 			// Base, for detect: the base URL typed, asked as each API
 			// takes it where the form has no URL of that API's own
 			Base string `json:"base"`
-			// Address, for save: where a local server's provider (Ollama,
-			// LM Studio, oMLX) is reached, another port or computer; each
-			// API keeps its path (provider.AtAddress). None keeps its URLs.
-			Address string `json:"address"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			fail(rw, err)
@@ -992,14 +988,6 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 					pr.Decide = d
 				}
 				in = pr
-			}
-			// a local server at the address given: the preset's URLs
-			// above, or the saved ones the editor sent, moved there
-			if pr := provider.Preset(in.Preset); pr != nil && pr.Kind == provider.KindLocal {
-				if err := in.AtAddress(req.Address); err != nil {
-					fail(rw, err)
-					return
-				}
 			}
 			cc, keepCC, err := concurrencyOf(req.MaxConcurrency)
 			if err != nil {
