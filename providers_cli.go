@@ -66,6 +66,9 @@ const providerUsage = `usage:
        magpie provider set my-relay search=yes
                                    (the relay answers Claude Code's WebSearch and Codex's web_search itself:
                                     those go to it as sent, not through magpie's own search)
+       magpie provider add ollama address=192.168.1.5:11434
+                                   (Ollama, LM Studio or oMLX on another port or computer: each API keeps its path;
+                                    magpie provider set ollama address=… moves one added already)
        magpie provider set ollama unmasked=yes
                                    (a model on this computer or the local network: Settings' redaction leaves its
                                     requests as written; not for a local relay that passes them on to a vendor)
@@ -731,6 +734,21 @@ func applyPairs(p *provider.Provider, pairs []string) error {
 			p.Chat, p.Responses, p.Anthropic, p.Decide = r.Chat, r.Responses, r.Anthropic, r.Decide
 			if r.KeysURL != "" {
 				p.KeysURL = r.KeysURL
+			}
+		case "address":
+			// a local server on another port or computer: its URLs' paths
+			// stay, the scheme, host and port are the address's
+			if pr := provider.Preset(p.Preset); pr == nil || pr.Kind != provider.KindLocal {
+				var local []string
+				for _, x := range provider.Presets() {
+					if x.Kind == provider.KindLocal {
+						local = append(local, x.Name)
+					}
+				}
+				return fmt.Errorf("address= moves a local server's provider (%s); give %s's URLs with url=, anthropic= or responses=", strings.Join(local, ", "), p.Name)
+			}
+			if err := p.AtAddress(v); err != nil {
+				return err
 			}
 		case "key":
 			p.Key = v

@@ -140,6 +140,18 @@ func (m model) updateProviders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}})
 	case "w":
 		pr := provider.Preset(p.Preset)
+		if pr != nil && pr.Kind == provider.KindLocal {
+			id, name := p.ID, p.Name
+			m.openAsk(localAddressAsk(*pr, []string{"providers", name, "address"}, provider.AddressOf(p.Chat, p.Responses, p.Anthropic), func(v string) tea.Cmd {
+				q := p
+				_ = q.AtAddress(v)
+				return saveProvider(id, func(p *provider.Provider) {
+					_ = p.AtAddress(v)
+					provider.ForgetBalances()
+				}, name+" address "+provider.AddressOf(q.Chat, q.Responses, q.Anthropic))
+			}))
+			return m, nil
+		}
 		if pr == nil || pr.Endpoint == "" {
 			m.flash, m.flashOK = p.Name+" is asked at its vendor's address · magpie provider set "+p.ID+" url=… changes a custom one's", false
 			return m, nil
@@ -426,6 +438,16 @@ func (m *model) openPresets() {
 						}
 					})}
 				}
+				// a local server can listen on another port, or be another
+				// computer's: asked first, Enter alone keeping the preset's
+				if pr := provider.Preset(id); pr != nil && pr.Kind == provider.KindLocal {
+					return askMsg{localAddressAsk(*pr, []string{"providers", "add", p.Name, "address"}, "", func(addr string) tea.Cmd {
+						return func() tea.Msg {
+							_ = p.AtAddress(addr)
+							return askMsg{addKeyAsk(p)}
+						}
+					})}
+				}
 				return askMsg{addKeyAsk(p)}
 			}
 		},
@@ -493,6 +515,22 @@ func endpointAsk(pr provider.PresetDef, crumbs []string, now string, then func(s
 					need = "Your resource's endpoint is needed"
 				}
 				return func() tea.Msg { return flashMsg{text: need} }
+			}
+			return then(v)
+		}}
+}
+
+// localAddressAsk asks where a local server's preset (KindLocal) is
+// reached, now being what it has; the preset's own address is the
+// placeholder. Enter alone keeps it, and a refused address is said.
+func localAddressAsk(pr provider.PresetDef, crumbs []string, now string, then func(string) tea.Cmd) ask {
+	in := newInput(provider.AddressOf(pr.Chat, pr.Responses, pr.Anthropic))
+	in.SetValue(now)
+	return ask{crumbs: crumbs, input: in, empty: true,
+		hint: "where the server listens: another port, or another computer's address",
+		onEnter: func(v string) tea.Cmd {
+			if _, err := provider.AtAddress(pr, v); err != nil {
+				return func() tea.Msg { return flashMsg{text: err.Error()} }
 			}
 			return then(v)
 		}}
