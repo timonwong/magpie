@@ -104,8 +104,9 @@ added, the saved one's when edited, the Endpoints following what is typed,
 the URLs sent (by a Save, and by a Test before it) moved only when it
 changed, so URLs set apart stay as saved when the address is typed, or made
 no address, and then put back, and an address that isn't one said and
-focused with nothing sent. English, Chinese, Japanese and German, at 900px
-and 440px. Run with `node --test internal/gui/tests/local-address.test.cjs`.
+focused with nothing sent. English, Simplified and Traditional Chinese,
+Japanese and German, at 900px and 440px. Run with
+`node --test internal/gui/tests/local-address.test.cjs`.
 
 `purpose-filter.test.cjs` checks Usage and Routing purpose filters (#742) in
 English and Chinese on Chromium and WebKit. It covers title aliases, literal

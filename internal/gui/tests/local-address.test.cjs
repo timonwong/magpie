@@ -10,7 +10,7 @@
 // before: none for a new one (the preset's), a saved one's own. One that
 // is no address is said, focused, and nothing is sent. A vendor's preset has
 // no Address. Nothing moves the page, and the field keeps its width at 440px.
-// English, Chinese, Japanese and German; no backend, the API is faked here.
+// English, Chinese (Simplified and Traditional), Japanese and German; no backend, the API is faked here.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -67,6 +67,7 @@ function server(lang, saves, asks) {
 const L = {
   en: { more: "Server address", field: "Address", hint: "Where the server listens; change the port, or give another computer's address", bad: "Address: ftp://box isn't an address like http://localhost:11434", test: "Test", add: "Add", save: "Save" },
   zh: { more: "服务器地址", field: "地址", hint: "服务监听的地址；可改端口，或填另一台电脑的地址", bad: "地址：ftp://box 不是形如 http://localhost:11434 的地址", test: "测试", add: "添加", save: "保存" },
+  "zh-TW": { more: "伺服器位址", field: "位址", hint: "伺服器監聽的位址；可改連接埠，或填另一臺電腦的位址", bad: "位址：ftp://box 不是 http://localhost:11434 這樣的位址", test: "測試", add: "新增", save: "儲存" },
   ja: { more: "サーバーアドレス", field: "アドレス", hint: "サーバーが待ち受けるアドレスです。ポートを変えるか、別のコンピューターのアドレスを入力します", bad: "アドレス：ftp://box は http://localhost:11434 のようなアドレスではありません", test: "テスト", add: "追加", save: "保存" },
   de: { more: "Serveradresse", field: "Adresse", hint: "Wo der Server lauscht; ändern Sie den Port oder geben Sie die Adresse eines anderen Computers an", bad: "Adresse: ftp://box ist keine Adresse wie http://localhost:11434", test: "Testen", add: "Hinzufügen", save: "Speichern" },
 };
