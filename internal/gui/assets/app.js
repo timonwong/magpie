@@ -7134,6 +7134,7 @@ function asTyped() {
   // many keys pasted (361 on Discord) are asked about by the first
   const keys = splitKeys(draft.key || "");
   const body = { typed: true, key: keys.length > 1 ? keys[0] : (draft.key || "").trim(), chat: (draft.chat || "").trim(), responses: (draft.responses || "").trim(), anthropic: (draft.anthropic || "").trim(), gemini: (draft.gemini || "").trim(), modelsURL: (draft.modelsURL || "").trim() };
+  Object.assign(body, movedURLs(draft));
   // a System One base is asked at POST …/systemone, not on the three APIs
   if (draft.api === "decide") body.decide = (draft.decide || "").trim();
   if (draft.headers) body.headers = headersOf(draft.headers);
@@ -8050,24 +8051,19 @@ function drawEditor(p, presetID) {
   // a server on this machine (Ollama, LM Studio, oMLX) can listen on another
   // port, or be another computer's: its address moves each URL, each API
   // keeping its path, as provider.AtAddress does
-  let address = null, addressWas = "", addressMore = null;
+  let address = null, addressMore = null;
   if (pr?.kind === "local") {
     // a saved provider's URLs (or a duplicate's) start it; a new one's are
     // the preset's, sent as none unless moved, so the gateway takes them
     const own = draft.chat !== undefined;
     draft.addressFrom ??= { chat: draft.chat ?? pr.chat ?? "", responses: draft.responses ?? pr.responses ?? "", anthropic: draft.anthropic ?? pr.anthropic ?? "" };
-    const from = draft.addressFrom;
-    addressWas = own ? originOf(from) : "";
+    draft.addressWas ??= own ? originOf(draft.addressFrom) : "";
+    const from = draft.addressFrom, addressWas = draft.addressWas;
     draft.address ??= addressWas;
     address = input(draft.address, originOf(pr));
     address.inputMode = "url";
     address.classList.add("address");
-    address.oninput = () => {
-      draft.address = address.value;
-      // a saved one's URLs follow, so Test and Refresh ask there before a Save
-      if (own) Object.assign(draft, atAddress(from, localAddress(address.value) || originOf(from)));
-      refreshEndpoints();
-    };
+    address.oninput = () => { draft.address = address.value; refreshEndpoints(); };
     const keys = address.onkeydown;
     address.onkeydown = (e) => { keys(e); if (e.key === "Enter" && isNew) save(); };
     // folded: most run where the preset says; open for one that doesn't,
@@ -8326,8 +8322,7 @@ function drawEditor(p, presetID) {
     refreshEndpoints = () => {
       const base = p || pr || {};
       const src = { chat: draft.chat || base.chat || "", responses: draft.responses || base.responses || "", anthropic: draft.anthropic || base.anthropic || "", decide: base.decide || "" };
-      const at = address && localAddress(draft.address);
-      if (at) Object.assign(src, atAddress({ chat: src.chat, responses: src.responses, anthropic: src.anthropic }, at));
+      Object.assign(src, address && movedURLs(draft));
       ebox.replaceChildren(renderEndpoints(p, src));
     };
     refreshEndpoints();
@@ -8486,11 +8481,9 @@ function drawEditor(p, presetID) {
     if (isNew && custom && !body.chat && !body.anthropic && !body.responses && !body.decide) { url.focus(); return editorError(t("A base URL is needed"), "warn"); }
     if (endpoint && !body.chat && !body.responses) { endpoint.focus(); return editorError(t(pr.endpointNeeded || "Your resource's endpoint is needed"), "warn"); }
     if (address) {
-      // the URLs moved only when it changed: a saved one's set apart
-      // (another app's, the CLI's) aren't moved by a Save that left it alone
       const a = (draft.address || "").trim();
-      if (a && localAddress(a) === null) { addressMore.open = true; address.focus({ preventScroll: true }); return editorError(t("Address: {v} isn't an address like http://localhost:11434", { v: a }), "warn"); }
-      if (a && a !== addressWas) Object.assign(body, atAddress(draft.addressFrom, localAddress(a)));
+      if (localAddress(a) === null) { addressMore.open = true; address.focus({ preventScroll: true }); return editorError(t("Address: {v} isn't an address like http://localhost:11434", { v: a }), "warn"); }
+      Object.assign(body, movedURLs(draft));
     }
     editorError("");
     saving(saveBtn, t(isNew ? "Adding…" : "Saving…"));
@@ -12729,6 +12722,16 @@ function originOf(x) {
     try { const v = new URL(u); return v.protocol + "//" + v.host; } catch {}
   }
   return "";
+}
+// movedURLs is a local server's URLs at the Address typed in its editor,
+// moved from the ones it opened with, or null while the Address is the one
+// it opened with or no address. Moved only then, and never into draft: URLs
+// a saved one has apart (another app's, the CLI's) stay as they are after
+// an Address is typed and put back.
+function movedURLs(d) {
+  if (!d?.addressFrom) return null;
+  const at = localAddress(d.address);
+  return at && at !== d.addressWas ? atAddress(d.addressFrom, at) : null;
 }
 // atAddress is urls each moved to origin, its path kept.
 function atAddress(urls, origin) {

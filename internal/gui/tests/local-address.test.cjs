@@ -37,7 +37,7 @@ const studio = { ...base, id: "omlx", name: "oMLX", icon: "omlx", preset: "omlx"
 const home = { ...base, id: "lmstudio", name: "LM Studio", icon: "lmstudio", preset: "lmstudio", host: "localhost:1234", chat: "http://localhost:1234/v1" };
 const apart = { ...base, id: "omlx-2", name: "oMLX Apart", icon: "omlx", preset: "omlx", host: "10.0.0.2:8000", chat: "http://10.0.0.2:8000/v1", anthropic: "http://10.0.0.3:9000" };
 
-function server(lang, saves) {
+function server(lang, saves, asks) {
   const list = { providers: [studio, apart, home], presets, excluded: [], gateway: { running: true, window: true } };
   return async (route) => {
     const url = new URL(route.request().url());
@@ -50,6 +50,11 @@ function server(lang, saves) {
       saves.push(route.request().postDataJSON());
       return json(list);
     }
+    // a Test asks with the URLs as typed, before a Save
+    if (url.pathname === "/api/provider/test") {
+      asks.push(route.request().postDataJSON());
+      return json({ results: [] });
+    }
     if (url.pathname === "/api/groups") return json({ groups: [], pools: [] });
     if (url.pathname === "/api/gateway/trace") return json({ routes: [] });
     if (url.pathname.startsWith("/api/")) return json({});
@@ -60,10 +65,10 @@ function server(lang, saves) {
 }
 
 const L = {
-  en: { more: "Server address", field: "Address", hint: "Where the server listens; change the port, or give another computer's address", bad: "Address: ftp://box isn't an address like http://localhost:11434", add: "Add", save: "Save" },
-  zh: { more: "服务器地址", field: "地址", hint: "服务监听的地址；可改端口，或填另一台电脑的地址", bad: "地址：ftp://box 不是形如 http://localhost:11434 的地址", add: "添加", save: "保存" },
-  ja: { more: "サーバーアドレス", field: "アドレス", hint: "サーバーが待ち受けるアドレスです。ポートを変えるか、別のコンピューターのアドレスを入力します", bad: "アドレス：ftp://box は http://localhost:11434 のようなアドレスではありません", add: "追加", save: "保存" },
-  de: { more: "Serveradresse", field: "Adresse", hint: "Wo der Server lauscht; ändern Sie den Port oder geben Sie die Adresse eines anderen Computers an", bad: "Adresse: ftp://box ist keine Adresse wie http://localhost:11434", add: "Hinzufügen", save: "Speichern" },
+  en: { more: "Server address", field: "Address", hint: "Where the server listens; change the port, or give another computer's address", bad: "Address: ftp://box isn't an address like http://localhost:11434", test: "Test", add: "Add", save: "Save" },
+  zh: { more: "服务器地址", field: "地址", hint: "服务监听的地址；可改端口，或填另一台电脑的地址", bad: "地址：ftp://box 不是形如 http://localhost:11434 的地址", test: "测试", add: "添加", save: "保存" },
+  ja: { more: "サーバーアドレス", field: "アドレス", hint: "サーバーが待ち受けるアドレスです。ポートを変えるか、別のコンピューターのアドレスを入力します", bad: "アドレス：ftp://box は http://localhost:11434 のようなアドレスではありません", test: "テスト", add: "追加", save: "保存" },
+  de: { more: "Serveradresse", field: "Adresse", hint: "Wo der Server lauscht; ändern Sie den Port oder geben Sie die Adresse eines anderen Computers an", bad: "Adresse: ftp://box ist keine Adresse wie http://localhost:11434", test: "Testen", add: "Hinzufügen", save: "Speichern" },
 };
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -75,12 +80,12 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       for (const width of [900, 440]) {
         await t.test(`${lang} ${width}`, async () => {
           const w = L[lang];
-          const saves = [];
+          const saves = [], asks = [];
           const page = await (await browser.newContext({ viewport: { width, height: 760 }, reducedMotion: "reduce" })).newPage();
           page.setDefaultTimeout(5000);
           const errors = [];
           page.on("pageerror", (e) => errors.push(e.message));
-          await page.route("**/*", server(lang, saves));
+          await page.route("**/*", server(lang, saves, asks));
           await page.goto("http://magpie.test/?view=providers");
           const shot = async (name) => {
             if (!process.env.ARTIFACT_DIR) return;
@@ -99,6 +104,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
             await ed.locator(".bar").getByRole("button", { name, exact: true }).click();
             for (let i = 0; i < 50 && saves.length === n; i++) await page.waitForTimeout(50);
             return saves.length > n ? saves.at(-1) : null;
+          };
+          const tested = async () => {
+            const n = asks.length;
+            await ed.locator(".eps").getByRole("button", { name: w.test, exact: true }).click();
+            for (let i = 0; i < 50 && asks.length === n; i++) await page.waitForTimeout(50);
+            assert.equal(asks.length, n + 1, "a Test asked");
+            return asks.at(-1);
           };
 
           // added: folded under the key, Server address its summary
@@ -161,6 +173,10 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await page.locator(".row.provider", { hasText: /^oMLX$|oMLX(?! Apart)/ }).first().click();
           await address.fill("https://studio.local:8001");
           assert.equal(await eps(), "https://studio.local:8001/v1 https://studio.local:8001/v1 https://studio.local:8001");
+          let asked = await tested();
+          assert.equal(asked.chat, "https://studio.local:8001/v1");
+          assert.equal(asked.responses, "https://studio.local:8001/v1");
+          assert.equal(asked.anthropic, "https://studio.local:8001");
           await shot("edit");
           s = await press(w.save);
           assert.equal("address" in s, false);
@@ -173,8 +189,43 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await ed.locator(".ehead b", { hasText: "oMLX Apart" }).waitFor();
           assert.equal(await isOpen(), true);
           assert.equal(await address.inputValue(), "http://10.0.0.2:8000");
+          const apartEps = "http://10.0.0.2:8000/v1 http://10.0.0.3:9000";
+          assert.equal(await eps(), apartEps);
           s = await press(w.save);
           assert.equal("address" in s, false);
+          assert.equal(s.chat, "http://10.0.0.2:8000/v1");
+          assert.equal(s.anthropic, "http://10.0.0.3:9000");
+
+          // edited, then put back as it was: still apart, in the Endpoints,
+          // a Test and the Save
+          await page.locator(".row.provider", { hasText: "oMLX Apart" }).click();
+          await ed.locator(".ehead b", { hasText: "oMLX Apart" }).waitFor();
+          // on macOS End doesn't move the caret, and focusing a field puts
+          // it at the start: focus first, then the caret, then the keys
+          await address.focus();
+          await address.evaluate((el) => el.setSelectionRange(el.value.length, el.value.length));
+          await page.keyboard.press("Backspace");
+          assert.equal(await eps(), "http://10.0.0.2:800/v1 http://10.0.0.2:800");
+          await page.keyboard.press("0");
+          assert.equal(await address.inputValue(), "http://10.0.0.2:8000");
+          assert.equal(await eps(), apartEps);
+          asked = await tested();
+          assert.equal(asked.chat, "http://10.0.0.2:8000/v1");
+          assert.equal(asked.anthropic, "http://10.0.0.3:9000");
+          s = await press(w.save);
+          assert.equal(s.chat, "http://10.0.0.2:8000/v1");
+          assert.equal(s.anthropic, "http://10.0.0.3:9000");
+
+          // no address, then put back: the same
+          await page.locator(".row.provider", { hasText: "oMLX Apart" }).click();
+          await ed.locator(".ehead b", { hasText: "oMLX Apart" }).waitFor();
+          await address.fill("ftp://box");
+          assert.equal(await eps(), apartEps);
+          assert.equal(await press(w.save), null);
+          assert.equal(await ed.locator(".editor-error").textContent(), w.bad);
+          await address.fill("http://10.0.0.2:8000");
+          assert.equal(await eps(), apartEps);
+          s = await press(w.save);
           assert.equal(s.chat, "http://10.0.0.2:8000/v1");
           assert.equal(s.anthropic, "http://10.0.0.3:9000");
 
