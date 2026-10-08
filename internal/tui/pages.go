@@ -142,9 +142,15 @@ func (m model) updateProviders(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		pr := provider.Preset(p.Preset)
 		if pr != nil && pr.Kind == provider.KindLocal {
 			id, name := p.ID, p.Name
-			m.openAsk(localAddressAsk(*pr, []string{"providers", name, "address"}, provider.AddressOf(p.Chat, p.Responses, p.Anthropic), func(v string) tea.Cmd {
+			now := provider.AddressOf(p.Chat, p.Responses, p.Anthropic)
+			m.openAsk(localAddressAsk(*pr, []string{"providers", name, "address"}, now, func(v string) tea.Cmd {
 				q := p
 				_ = q.AtAddress(v)
+				// the address it opened with: URLs set apart (an Anthropic
+				// URL on another host) aren't moved onto the first one's
+				if at := provider.AddressOf(q.Chat, q.Responses, q.Anthropic); v == "" || at == now {
+					return func() tea.Msg { return flashMsg{text: name + " address unchanged", ok: true} }
+				}
 				return saveProvider(id, func(p *provider.Provider) {
 					_ = p.AtAddress(v)
 					provider.ForgetBalances()

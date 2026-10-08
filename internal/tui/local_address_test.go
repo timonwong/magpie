@@ -86,4 +86,25 @@ func TestTUIAddsALocalServerAtItsAddress(t *testing.T) {
 	if p, _ := provider.Find("omlx"); p.Chat != "http://127.0.0.1:2/v1" {
 		t.Fatalf("a refused w left %q", p.Chat)
 	}
+
+	// URLs set apart stay when the address is left as it opened, or typed
+	// again in another form
+	p, _ = provider.Find("omlx")
+	p.Chat, p.Responses, p.Anthropic = "http://10.0.0.2:8000/v1", "http://10.0.0.2:8000/v1", "http://10.0.0.3:9000"
+	if err := provider.Save(*p); err != nil {
+		t.Fatal(err)
+	}
+	for _, typed := range []string{"", "10.0.0.2:8000/v1"} {
+		m = at(m, "omlx")
+		m = press(t, m, "w")
+		if typed != "" {
+			m = press(t, m, "ctrl+u")
+			m = typeIn(m, typed)
+		}
+		m = press(t, m, "enter")
+		wantFlash(t, m, true, "address unchanged")
+		if p, _ := provider.Find("omlx"); p.Chat != "http://10.0.0.2:8000/v1" || p.Anthropic != "http://10.0.0.3:9000" {
+			t.Fatalf("w, %q, enter moved them: %q %q", typed, p.Chat, p.Anthropic)
+		}
+	}
 }
