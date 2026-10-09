@@ -1106,6 +1106,7 @@ type responsesEncoder struct {
 	output  []map[string]any
 	col     collector
 	named   map[string]nsTool // the request's namespaced tools
+	ints    *toolInts         // a Grok model's integer fields
 }
 
 // callTo names the tool a function_call item is to as the client knows it:
@@ -1217,6 +1218,7 @@ func (e *responsesEncoder) closeItem() {
 			args = "{}"
 		}
 		p := e.col.last(ToolCall)
+		args, _ = e.ints.args(args, p.Name, "")
 		if q := e.named[p.Name]; !q.Search && !q.Custom {
 			e.send("response.function_call_arguments.done", callTo(map[string]any{"item_id": e.itemID, "output_index": e.item, "call_id": p.ID, "arguments": args}, p.Name, e.named))
 		}
@@ -1325,7 +1327,7 @@ func (e *responsesEncoder) finish() {
 }
 
 // renderResponses is the non-streaming reply.
-func renderResponses(res Result, model string, named map[string]nsTool) []byte {
+func renderResponses(res Result, model string, named map[string]nsTool, ints *toolInts) []byte {
 	output := []map[string]any{}
 	for _, p := range res.Parts {
 		switch p.Kind {
@@ -1340,8 +1342,9 @@ func renderResponses(res Result, model string, named map[string]nsTool) []byte {
 			if id == "" {
 				id = "call_" + newID()
 			}
+			args, _ := ints.args(argsString(p), p.Name, "")
 			item := callTo(map[string]any{"type": "function_call", "status": "completed",
-				"call_id": id, "arguments": argsString(p)}, p.Name, named)
+				"call_id": id, "arguments": args}, p.Name, named)
 			item["id"] = itemPrefix(item) + newID()
 			output = append(output, item)
 		}

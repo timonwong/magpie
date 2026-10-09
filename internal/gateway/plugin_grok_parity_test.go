@@ -152,6 +152,23 @@ func TestGrokPluginGetsNamespacedTools(t *testing.T) {
 	}
 }
 
+// A Grok model the Grok plugin serves writes Codex's integers as floats
+// too; Codex reads them as integers, as from a relay
+// (TestGrokCallsGiveCodexIntegers), streamed or not.
+func TestGrokPluginCallsGiveCodexIntegers(t *testing.T) {
+	c := integralCases(t)[0]
+	t.Setenv("FAKE_GROK", "1")
+	pid := besideFake(t, "grok", responsesCall(c.tool, c.args))
+	for _, stream := range []bool{true, false} {
+		rec := httptest.NewRecorder()
+		New().Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/v1/responses", strings.NewReader(codexShellTurn(pid+"/grok-4.7", stream))))
+		if rec.Code != 200 {
+			t.Fatalf("stream %v: %d %s", stream, rec.Code, rec.Body)
+		}
+		checkIntegral(t, c, rec.Body.Bytes(), stream)
+	}
+}
+
 // Kiro's plugin beside the built-in (kiro-plugin) counts by estimate, as
 // the built-in and the moved plugin do: the vendor isn't asked.
 func TestPluginBesideBuiltinCountsByEstimate(t *testing.T) {

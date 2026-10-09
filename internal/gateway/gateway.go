@@ -3073,6 +3073,12 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	if proto == provider.Responses && p.Account != nil && (p.Account.Agent == "grok" || p.PluginProvider() == "grok" || p.PluginProvider() == "zed") {
 		named = namespacedIn(body)
 	}
+	// a Grok model's integral floats in its calls' integer fields, which
+	// Codex turns away (grok_integral.go)
+	var ints *toolInts
+	if proto == provider.Responses && grokModel(upstream) {
+		ints = intsIn(body)
+	}
 	res, err := s.forward(r.Context(), p, proto, path, p.Prepare(body), r.Header)
 	if err != nil {
 		return writeError(w, proto, 502, p.Name+": "+err.Error()), err.Error(), true
@@ -3253,6 +3259,10 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	if searchFn && sse {
 		search = &searchTidy{}
 	}
+	var integers *intTidy
+	if ints != nil {
+		integers = &intTidy{ints: ints, sse: sse}
+	}
 	var spaces *nsTidy
 	if named != nil {
 		spaces = &nsTidy{named: named, sse: sse}
@@ -3275,6 +3285,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 			}
 			if search != nil {
 				out = search.write(out)
+			}
+			if integers != nil {
+				out = integers.write(out)
 			}
 			if spaces != nil {
 				out = spaces.write(out)
@@ -3320,6 +3333,16 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.
 	}
 	if search != nil {
 		out := search.flush()
+		if integers != nil {
+			out = integers.write(out)
+		}
+		if spaces != nil {
+			out = spaces.write(out)
+		}
+		w.Write(sign(out))
+	}
+	if integers != nil {
+		out := integers.flush()
 		if spaces != nil {
 			out = spaces.write(out)
 		}
@@ -4025,6 +4048,11 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 	if err != nil {
 		return writeError(w, from, 400, err.Error()), err.Error()
 	}
+	// a Grok model's integral floats in its calls' integer fields, which
+	// Codex turns away (grok_integral.go)
+	if from == provider.Responses && grokModel(provider.UpstreamNameIn(wiresOf(r.Context()), p.ID, model)) {
+		request.Ints = intsOf(request.Tools)
+	}
 	if from == provider.Anthropic {
 		// Claude Code's auto mode classifier, on a model that reasons
 		// whatever it is told (#250)
@@ -4342,7 +4370,7 @@ func makeEncoder(proto provider.Protocol, w *sseWriter, r *Request) streamEncode
 	case provider.Chat:
 		return &chatEncoder{w: w, model: model}
 	case provider.Responses:
-		return &responsesEncoder{w: w, model: model, named: r.Namespaced}
+		return &responsesEncoder{w: w, model: model, named: r.Namespaced, ints: r.Ints}
 	case provider.Gemini:
 		return &geminiEncoder{w: w, model: model}
 	}
@@ -4355,7 +4383,7 @@ func render(proto provider.Protocol, res Result, r *Request) []byte {
 	case provider.Chat:
 		return renderChat(res, model)
 	case provider.Responses:
-		return renderResponses(res, model, r.Namespaced)
+		return renderResponses(res, model, r.Namespaced, r.Ints)
 	case provider.Gemini:
 		return renderGemini(res, model)
 	}
