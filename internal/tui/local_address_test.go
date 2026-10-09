@@ -6,8 +6,8 @@ import (
 	"github.com/yetone/magpie/internal/provider"
 )
 
-// A local server's preset (Ollama, LM Studio, oMLX) is asked its address
-// before its key, as the app's editor asks it: Enter alone keeps the
+// A local server's preset (Ollama, LM Studio, oMLX, MLX-Serve) is asked
+// its address before its key, as the app's editor asks it: Enter alone keeps the
 // default, another port or computer moves each API there, and w changes
 // it later.
 func TestTUIAddsALocalServerAtItsAddress(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// A local server's preset (Ollama, LM Studio, oMLX) is reached at another
-// port or another computer by its address alone: each API keeps its own
+// A local server's preset (Ollama, LM Studio, oMLX, MLX-Serve) is
+// reached at another port or another computer by its address alone: each API keeps its own
 // path under it.
 func TestAtAddress(t *testing.T) {
 	ollama, lmstudio, omlx := *Preset("ollama"), *Preset("lmstudio"), *Preset("omlx")

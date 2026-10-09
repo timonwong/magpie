@@ -97,8 +97,8 @@ node --test --test-concurrency=1 internal/gui/tests/gateway-caller-keys.test.cjs
 ## Other Browser Regressions
 
 `local-address.test.cjs` checks the Address of a local server's provider
-(Ollama, LM Studio, oMLX): under the key in a Server address section, folded
-unless the provider is away from the preset's default or an address typed or
+(Ollama, LM Studio, oMLX, MLX-Serve): under the key in a Server address
+section, folded unless the provider is away from the preset's default or an address typed or
 refused needs it open; empty with the preset's as its placeholder when
 added, the saved one's when edited, the Endpoints following what is typed,
 the URLs sent (by a Save, and by a Test before it) moved only when it

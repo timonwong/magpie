@@ -8048,8 +8048,8 @@ function drawEditor(p, presetID) {
     ed.append(...field(t("Endpoint"), endpoint, pr.endpointHint ? t(pr.endpointHint) : ""));
   }
 
-  // a server on this machine (Ollama, LM Studio, oMLX) can listen on another
-  // port, or be another computer's: its address moves each URL, each API
+  // a server on this machine (Ollama, LM Studio, oMLX, MLX-Serve) can
+  // listen on another port, or be another computer's: its address moves each URL, each API
   // keeping its path, as provider.AtAddress does
   let address = null, addressMore = null;
   if (pr?.kind === "local") {
