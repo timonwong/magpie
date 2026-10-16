@@ -549,10 +549,13 @@ func buildChat(r *Request, model, host string, rejectTemp bool) []byte {
 //     can go on (an interrupted turn leaves its call pending); a turn's
 //     calls split over consecutive assistant messages were joined into
 //     one by joinSplitCalls before, so they are pending together (#1275);
-//   - an assistant message with nothing in it — no text, no calls, no
-//     reasoning, what a thinking-only turn becomes — is dropped inside a
-//     pending exchange, where it would sit between calls and their
-//     answers; outside an exchange it passes through, as on main.
+//   - an assistant message with no text and no calls — what a turn
+//     stopped while the model was thinking becomes, its reasoning or not —
+//     is left out, and the user messages either side of it go as one.
+//     DeepSeek and Kimi refuse it ("content or tool_calls must be set"),
+//     and the agent sends it again on every later request, so its session
+//     was stuck from the interruption on (hope-agent#779 is the same in
+//     another agent); a prefill sent back to go on from stays.
 func pairToolMessages(msgs []map[string]any) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
 	var pending []string          // calls of the last assistant message with tool_calls
@@ -598,14 +601,23 @@ func pairToolMessages(msgs []map[string]any) []map[string]any {
 		out = append(out, map[string]any{"role": "user", "content": text})
 	}
 
+	joinUser := false // a bare assistant message was left out just before
 	for _, m := range msgs {
+		if m["role"] == "user" && joinUser {
+			if n := len(out); n > 0 && out[n-1]["role"] == "user" && len(tools) == 0 {
+				out[n-1]["content"] = joinedContent(out[n-1]["content"], m["content"])
+				joinUser = false
+				continue
+			}
+		}
+		joinUser = false
 		switch m["role"] {
 		case "assistant":
 			calls, _ := m["tool_calls"].([]map[string]any)
 			if len(calls) == 0 {
-				if len(pending) > 0 && emptyAssistant(m) {
-					// dropped before it can sit between the pending
-					// calls and their answers; the exchange stays open
+				if bareAssistant(m) {
+					// inside a pending exchange the exchange stays open
+					joinUser = len(pending) == 0
 					continue
 				}
 				flushPending()
@@ -649,17 +661,45 @@ func toolMsgID(m map[string]any) string {
 	return id
 }
 
-// emptyAssistant reports whether an assistant message carries nothing:
-// no text, no tool calls, no reasoning.
-func emptyAssistant(m map[string]any) bool {
+// bareAssistant reports whether an assistant message has neither text nor
+// tool calls; reasoning_content doesn't count, as it doesn't for DeepSeek.
+// A prefill (continuation.go) is never bare: the upstream goes on from it.
+func bareAssistant(m map[string]any) bool {
 	if calls, ok := m["tool_calls"].([]map[string]any); ok && len(calls) > 0 {
 		return false
 	}
-	if s, _ := m["reasoning_content"].(string); strings.TrimSpace(s) != "" {
+	if m["prefix"] == true || m["partial"] == true {
 		return false
 	}
-	s, _ := m["content"].(string)
-	return strings.TrimSpace(s) == ""
+	switch c := m["content"].(type) {
+	case string:
+		return strings.TrimSpace(c) == ""
+	case []map[string]any:
+		return len(c) == 0
+	}
+	return m["content"] == nil
+}
+
+// joinedContent is two user messages' content as one: strings joined by a
+// blank line, else their parts in order.
+func joinedContent(a, b any) any {
+	sa, aok := a.(string)
+	sb, bok := b.(string)
+	if aok && bok {
+		return sa + "\n\n" + sb
+	}
+	var parts []map[string]any
+	for _, c := range []any{a, b} {
+		switch c := c.(type) {
+		case string:
+			if c != "" {
+				parts = append(parts, map[string]any{"type": "text", "text": c})
+			}
+		case []map[string]any:
+			parts = append(parts, c...)
+		}
+	}
+	return parts
 }
 
 // aiStudioHost is Google AI Studio's Gemini API, whose OpenAI-compatible

@@ -532,3 +532,131 @@ func mistralThinking(body []byte) []byte {
 		return true
 	})
 }
+
+// withoutEmptyAssistants leaves out of a Chat request every assistant
+// message with neither content nor tool calls, and joins the user messages
+// either side of one, as pairToolMessages does for a translated request:
+// an agent stopped while the model was thinking keeps that turn, its
+// reasoning_content alone, and sends it on every later request, which
+// DeepSeek and Kimi refuse ("content or tool_calls must be set"). A body
+// with none comes back byte for byte.
+func withoutEmptyAssistants(body []byte) []byte {
+	if !bytes.Contains(body, []byte(`"assistant"`)) {
+		return body
+	}
+	var q map[string]json.RawMessage
+	if decodeJSON(body, &q) != nil {
+		return body
+	}
+	var msgs []json.RawMessage
+	if decodeJSON(q["messages"], &msgs) != nil {
+		return body
+	}
+	out := make([]json.RawMessage, 0, len(msgs))
+	changed, join := false, false
+	for _, raw := range msgs {
+		var m map[string]json.RawMessage
+		if decodeJSON(raw, &m) != nil {
+			out, join = append(out, raw), false
+			continue
+		}
+		var role string
+		decodeJSON(m["role"], &role)
+		if role == "assistant" && bareRawAssistant(m) {
+			changed, join = true, true
+			continue
+		}
+		if role == "user" && join && len(out) > 0 {
+			if joined, ok := joinedRawUser(out[len(out)-1], m); ok {
+				out[len(out)-1] = joined
+				join = false
+				continue
+			}
+		}
+		out, join = append(out, raw), false
+	}
+	if !changed {
+		return body
+	}
+	q["messages"], _ = marshalPlain(out)
+	nb, err := marshalPlain(q)
+	if err != nil {
+		return body
+	}
+	return nb
+}
+
+// bareRawAssistant reports whether an assistant message of a Chat request
+// has neither content nor a tool call; a prefill (prefix, partial), a
+// refusal or audio is never bare.
+func bareRawAssistant(m map[string]json.RawMessage) bool {
+	var calls []json.RawMessage
+	if decodeJSON(m["tool_calls"], &calls) == nil && len(calls) > 0 {
+		return false
+	}
+	for _, f := range []string{"function_call", "audio", "refusal"} {
+		if raw, ok := m[f]; ok && string(raw) != "null" && string(raw) != `""` {
+			return false
+		}
+	}
+	for _, f := range []string{"prefix", "partial"} {
+		if string(m[f]) == "true" {
+			return false
+		}
+	}
+	raw, ok := m["content"]
+	if !ok || string(raw) == "null" {
+		return true
+	}
+	var s string
+	if decodeJSON(raw, &s) == nil {
+		return strings.TrimSpace(s) == ""
+	}
+	var parts []json.RawMessage
+	if decodeJSON(raw, &parts) == nil {
+		return len(parts) == 0
+	}
+	return false
+}
+
+// joinedRawUser is the user message prev with next's content after its
+// own, when prev is a user message: strings joined by a blank line, else
+// their parts in order.
+func joinedRawUser(prev json.RawMessage, next map[string]json.RawMessage) (json.RawMessage, bool) {
+	var p map[string]json.RawMessage
+	if decodeJSON(prev, &p) != nil {
+		return nil, false
+	}
+	var role string
+	if decodeJSON(p["role"], &role); role != "user" {
+		return nil, false
+	}
+	parts := func(raw json.RawMessage) ([]json.RawMessage, bool) {
+		var s string
+		if decodeJSON(raw, &s) == nil {
+			if s == "" {
+				return nil, true
+			}
+			b, _ := marshalPlain(map[string]string{"type": "text", "text": s})
+			return []json.RawMessage{b}, true
+		}
+		var ps []json.RawMessage
+		return ps, decodeJSON(raw, &ps) == nil
+	}
+	var a, b string
+	if decodeJSON(p["content"], &a) == nil && decodeJSON(next["content"], &b) == nil {
+		p["content"], _ = marshalPlain(a + "\n\n" + b)
+	} else {
+		pa, ok1 := parts(p["content"])
+		pb, ok2 := parts(next["content"])
+		if !ok1 || !ok2 {
+			return nil, false
+		}
+		p["content"], _ = marshalPlain(append(pa, pb...))
+	}
+	nb, err := marshalPlain(p)
+	if err != nil {
+		return nil, false
+	}
+	return nb, true
+}
