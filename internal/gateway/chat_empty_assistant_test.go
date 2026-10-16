@@ -146,9 +146,10 @@ func TestChatEmptyAssistantLeftOutFromResponses(t *testing.T) {
 	}
 }
 
-// Inside a tool exchange the turn was left out already when it had no
-// reasoning; with DeepSeek's reasoning_content on it, it went between the
-// calls and their results, which a strict upstream refuses as well.
+// Inside a tool exchange a thinking-only turn right after the calls is
+// joined onto them (joinSplitCalls) before it can stand alone, its thinking
+// with DeepSeek's reasoning_content; nothing bare goes between the calls
+// and their results. A guard: it passes before this change too.
 func TestChatThinkingOnlyAssistantInsideExchangeForDeepSeek(t *testing.T) {
 	r := &Request{Messages: []Message{
 		{Role: "user", Parts: []Part{{Kind: Text, Text: "run"}}},
