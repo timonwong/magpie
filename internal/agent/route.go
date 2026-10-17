@@ -181,8 +181,12 @@ func magpieModels(agent string) []catalog.Model {
 			if n := e.Provider.Native(e.Model); n != "" {
 				m.APIs = []string{string(n)}
 			}
-		} else if allResponses(members(e.ID)) {
-			m.APIs = []string{string(provider.Responses)}
+		} else {
+			ms := members(e.ID)
+			if allResponses(ms) {
+				m.APIs = []string{string(provider.Responses)}
+			}
+			m.SomeResponses = slices.ContainsFunc(ms, func(m provider.Member) bool { return m.Provider.Native(m.Model) == provider.Responses })
 		}
 		// the service tiers Codex is offered on it, as the gateway's own
 		// lists offer them: Fast in the Codex CLI magpie writes

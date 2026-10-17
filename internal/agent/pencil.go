@@ -99,7 +99,7 @@ func pencilApp(home string) bool {
 func pencilProviderJSON(gw string) map[string]any {
 	ms := []map[string]any{}
 	for _, m := range magpieModels("pencil") {
-		e := piModelJSON(m, gw, false)
+		e := piModelJSON(m, gw, "")
 		if _, ok := e["input"]; !ok {
 			e["input"] = []string{"text"}
 		}

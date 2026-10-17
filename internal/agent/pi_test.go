@@ -59,7 +59,7 @@ func TestPiOffOnMessagesAPI(t *testing.T) {
 		{"relay/opus-5.5", []string{"low", "high", "max"}, "left out", []string{"off", "low", "high", "max"}},
 	} {
 		m := catalog.Model{ID: c.id, Name: c.id, Efforts: c.efforts, APIs: []string{"anthropic"}}
-		e := piModelJSON(m, "http://127.0.0.1:1", true)
+		e := piModelJSON(m, "http://127.0.0.1:1", piResponses)
 		if e["api"] != "anthropic-messages" {
 			t.Fatalf("%s on %v", c.id, e["api"])
 		}
@@ -98,7 +98,7 @@ func TestPiCostAndPromptCache(t *testing.T) {
 			map[string]any{"input": 3.0, "output": 15.0, "cacheRead": 0.3, "cacheWrite": 3.75}, nil},
 		{catalog.Model{ID: "deepseek/deepseek-flash", APIs: []string{"anthropic"}}, nil, nil},
 	} {
-		e := piModelJSON(c.m, "http://127.0.0.1:1", true)
+		e := piModelJSON(c.m, "http://127.0.0.1:1", piResponses)
 		if !reflect.DeepEqual(e["cost"], c.cost) {
 			t.Errorf("%s: cost %v, want %v", c.m.ID, e["cost"], c.cost)
 		}

@@ -410,7 +410,7 @@ func magpieProviderJSONAt(shape, catalog, gw string) any {
 	case "pi":
 		var ms []map[string]any
 		for _, m := range models {
-			ms = append(ms, piModelJSON(m, gw, true))
+			ms = append(ms, piModelJSON(m, gw, piResponses))
 		}
 		if ms == nil {
 			ms = []map[string]any{}
@@ -418,11 +418,12 @@ func magpieProviderJSONAt(shape, catalog, gw string) any {
 		// Pi names its session to a provider only when asked to:
 		// sendSessionAffinityHeaders has it send it on Chat
 		// (x-session-affinity, session_id) and Anthropic's Messages API
-		// (x-session-affinity). On Responses it sends session_id anyway.
-		// Without it a turn of Pi's on Chat or Messages reached the gateway
-		// with no session: its usage had none and "Record gateway
-		// conversations" kept none of it (akic404 on Discord).
-		return map[string]any{"name": "magpie", "baseUrl": gw + "/v1", "api": "openai-completions", "apiKey": keyAt(gw),
+		// (x-session-affinity). On Responses, the provider's own api, it
+		// sends session_id anyway. Without it a turn of Pi's on Chat or
+		// Messages reached the gateway with no session: its usage had none
+		// and "Record gateway conversations" kept none of it (akic404 on
+		// Discord).
+		return map[string]any{"name": "magpie", "baseUrl": gw + "/v1", "api": piResponses, "apiKey": keyAt(gw),
 			"compat": map[string]any{"sendSessionAffinityHeaders": true}, "models": ms}
 	}
 	return nil
@@ -513,32 +514,33 @@ func objectPairs(raw []byte) orderedJSON {
 	return out
 }
 
-// piModelJSON is one of magpie's models as an entry of Pi's models.json.
-// native asks it on the API its provider speaks natively (a model's own
-// api and baseUrl); without it the model is left on the provider's
+// Pi's APIs, as a models.json provider or model names them.
+const (
+	piResponses = "openai-responses"
+	piChat      = "openai-completions"
+	piMessages  = "anthropic-messages"
+)
+
+// piModelJSON is one of magpie's models as an entry of Pi's models.json,
+// under a provider on def: a model asked on another API than def names its
+// own (piAPI). An empty def leaves every model on the provider's
 // openai-completions (Pencil, pencil.go).
-func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
+func piModelJSON(m catalog.Model, gw, def string) map[string]any {
 	// reasoning lets Pi offer its thinking levels for the model: as
 	// /v1/models says it (provider.Entry.Thinks), so one that thinks with
 	// no levels magpie knows (Trae CN's kimi-k3-max, #2380) is offered
 	// Pi's own off to high, which the gateway fits to the model, where
 	// it had off alone
 	e := map[string]any{"id": m.ID, "name": m.Name, "reasoning": m.Reasoning || len(m.Efforts) > 0}
-	// each model is asked on the API its provider speaks natively,
-	// so the gateway relays what Pi sent as it is instead of
-	// translating Chat. One served on OpenAI's Responses API alone,
-	// or best there (a ChatGPT sign-in, GPT on OpenAI's API or
-	// Copilot's), goes to baseUrl/responses; one on Anthropic's
-	// Messages API alone to the gateway's /v1/messages (Anthropic's
-	// SDK adds the /v1). A Claude that thinks only adaptively is
-	// told so: Pi would otherwise ask it for a thinking budget,
-	// which it turns away.
-	switch {
-	case !native:
-	case slices.Contains(m.APIs, string(provider.Responses)):
-		e["api"] = "openai-responses"
-	case slices.Contains(m.APIs, string(provider.Anthropic)):
-		e["api"], e["baseUrl"] = "anthropic-messages", gw
+	api := piAPI(m, def)
+	if api != def {
+		e["api"] = api
+	}
+	// Anthropic's SDK adds the /v1 to the gateway's address. A Claude
+	// that thinks only adaptively is told so: Pi would otherwise ask it
+	// for a thinking budget, which it turns away.
+	if api == piMessages {
+		e["baseUrl"] = gw
 		if gateway.AdaptiveThinking(m.ID) {
 			e["compat"] = map[string]any{"forceAdaptiveThinking": true}
 		}
@@ -546,7 +548,7 @@ func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
 	if m.Images {
 		e["input"] = []string{"text", "image"}
 	}
-	if levels := piThinkingLevels(m.Efforts, e["api"] == "anthropic-messages" && gateway.ThinksOnlyWhenAsked(m.ID)); levels != nil {
+	if levels := piThinkingLevels(m.Efforts, api == piMessages && gateway.ThinksOnlyWhenAsked(m.ID)); levels != nil {
 		e["thinkingLevelMap"] = levels
 	}
 	// without it Pi takes every model for a 128K one, and compacts
@@ -564,10 +566,39 @@ func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
 	if m.Price != nil {
 		e["cost"] = map[string]any{"input": m.Price.Input, "output": m.Price.Output, "cacheRead": m.Price.CacheRead, "cacheWrite": m.Price.CacheWrite}
 	}
-	if c := piPromptCache(e["api"], m.ID); c != nil {
+	// a group on Responses for some of its members may be translated for
+	// the one it picks, so its cache's lifetime isn't the vendor's
+	relayed := api
+	if api == piResponses && !slices.Contains(m.APIs, string(provider.Responses)) {
+		relayed = ""
+	}
+	if c := piPromptCache(relayed, m.ID); c != nil {
 		e["promptCache"] = c
 	}
 	return e
+}
+
+// piAPI is the API Pi asks m on under a provider on def, so the gateway
+// relays what Pi sent as it is instead of translating it: one served on
+// OpenAI's Responses API alone, or best there (a ChatGPT sign-in, GPT on
+// OpenAI's API or Copilot's), on Responses; one on Anthropic's Messages API
+// alone on Messages; any other on Chat, a sign-in's with no API of its own
+// included. Under a provider on Responses a group with a member best there
+// goes there too, the gateway translating for the rest (#1594); one with
+// none, or under another provider, goes there only when all its members are
+// (catalog.Model.APIs). An empty def is "".
+func piAPI(m catalog.Model, def string) string {
+	switch {
+	case def == "":
+		return ""
+	case slices.Contains(m.APIs, string(provider.Responses)):
+		return piResponses
+	case slices.Contains(m.APIs, string(provider.Anthropic)):
+		return piMessages
+	case def == piResponses && m.SomeResponses:
+		return piResponses
+	}
+	return piChat
 }
 
 // piPromptCache is how long, in seconds, the vendor keeps a model's prompt
@@ -577,14 +608,14 @@ func piModelJSON(m catalog.Model, gw string, native bool) map[string]any {
 // one 5 minutes, or an hour asked with a 1h cache_control (Pi's long); GPT
 // on OpenAI's Responses API keeps one in memory 5 to 10 minutes, and only
 // some models offer the 24h retention, so long is left out. A Claude
-// subscription runs through Claude Code, which caches on its own: no api is
-// set for it, and none is declared.
-func piPromptCache(api any, id string) map[string]any {
+// subscription runs through Claude Code, which caches on its own: it is
+// asked on Chat, and none is declared.
+func piPromptCache(api, id string) map[string]any {
 	name := strings.ToLower(id[strings.LastIndex(id, "/")+1:])
 	switch {
-	case api == "anthropic-messages" && strings.HasPrefix(name, "claude"):
+	case api == piMessages && strings.HasPrefix(name, "claude"):
 		return map[string]any{"short": 300, "long": 3600}
-	case api == "openai-responses" && strings.HasPrefix(name, "gpt"):
+	case api == piResponses && strings.HasPrefix(name, "gpt"):
 		return map[string]any{"short": 300}
 	}
 	return nil

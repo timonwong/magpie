@@ -2,19 +2,24 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
+	"gopkg.in/yaml.v3"
 )
 
-// Pi asks each model on the API its provider serves it on, so the gateway
-// relays the request as it is: a Responses-only provider's models and GPT
-// on OpenAI's API go on openai-responses; a Messages-only provider's on
-// anthropic-messages at the gateway; a Chat provider's stay on the
-// provider's openai-completions. A group whose members are all best on
-// Responses goes there too (#1594); any other group stays on Chat.
+// Pi's provider is on openai-responses, and each model is asked on the API
+// its provider serves it on, so the gateway relays the request as it is: a
+// Responses-only provider's models and GPT on OpenAI's API take the
+// provider's api; a Messages-only provider's go on anthropic-messages at
+// the gateway; a Chat provider's, and a sign-in's with no API of its own,
+// on openai-completions. A group with a member best on Responses takes the
+// provider's api (#1594: one Chat member put a GPT group on Chat, and its
+// tool-call arguments were held for a Chat answer); a group with none stays
+// on Chat. omp, given the same groups, still asks a mixed one on Chat.
 func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 	home := syncHome(t)
 	for _, p := range []provider.Provider{
@@ -33,6 +38,9 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 		{ID: "mixed", Name: "Mixed", Members: []string{"resp/grok-5", "relay/glm-4.6"}},
 		{ID: "claudes", Name: "Claudes", Members: []string{"anth/claude-sonnet-5", "anth/kimi-k3"}},
 		{ID: "outer", Name: "Outer", Members: []string{"group/gpts", "openai/gpt-5.5"}},
+		{ID: "chats", Name: "Chats", Members: []string{"relay/glm-4.6", "openai/whisper-x"}},
+		{ID: "nested", Name: "Nested", Members: []string{"group/mixed", "anth/kimi-k3"}},
+		{ID: "gpt-mix", Name: "GPT mix", Members: []string{"resp/gpt-5.5", "relay/glm-4.6"}},
 	} {
 		if err := provider.SaveGroup(g); err != nil {
 			t.Fatal(err)
@@ -46,7 +54,7 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	pm := file["providers"].(map[string]any)["magpie"].(map[string]any)
-	if pm["api"] != "openai-completions" || pm["baseUrl"] != gatewayV1() {
+	if pm["api"] != "openai-responses" || pm["baseUrl"] != gatewayV1() {
 		t.Fatalf("provider: %v", pm)
 	}
 	apis, entries := map[string]any{}, map[string]map[string]any{}
@@ -55,18 +63,21 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 		apis[m["id"].(string)], entries[m["id"].(string)] = m["api"], m
 	}
 	for id, want := range map[string]any{
-		"resp/grok-5":          "openai-responses",
-		"resp/gpt-5.5":         "openai-responses",
-		"openai/gpt-5.5":       "openai-responses",
-		"openai/whisper-x":     nil,
-		"relay/glm-4.6":        nil,
+		"resp/grok-5":          nil,
+		"resp/gpt-5.5":         nil,
+		"openai/gpt-5.5":       nil,
+		"openai/whisper-x":     "openai-completions",
+		"relay/glm-4.6":        "openai-completions",
 		"anth/claude-sonnet-5": "anthropic-messages",
 		"anth/kimi-k3":         "anthropic-messages",
-		"group/auto-gpt-5-5":   "openai-responses",
-		"group/gpts":           "openai-responses",
-		"group/outer":          "openai-responses",
+		"group/auto-gpt-5-5":   nil,
+		"group/gpts":           nil,
+		"group/outer":          nil,
 		"group/mixed":          nil,
-		"group/claudes":        nil,
+		"group/nested":         nil,
+		"group/gpt-mix":        nil,
+		"group/claudes":        "openai-completions",
+		"group/chats":          "openai-completions",
 	} {
 		got, ok := apis[id]
 		if !ok {
@@ -89,5 +100,45 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 	}
 	if _, ok := entries["resp/grok-5"]["baseUrl"]; ok {
 		t.Errorf("a Responses model keeps the provider's baseUrl: %v", entries["resp/grok-5"])
+	}
+	// a GPT is told its cache's lifetime only where the gateway relays the
+	// request as it is: not in a group it may translate for
+	for id, want := range map[string]bool{"resp/gpt-5.5": true, "group/gpts": true, "group/gpt-mix": false} {
+		if _, got := entries[id]["promptCache"]; got != want {
+			t.Errorf("%s: promptCache %v, want one: %v", id, entries[id]["promptCache"], want)
+		}
+	}
+
+	// Pi alone: omp asks the same mixed groups on Chat, as before
+	was := ompVersion
+	ompVersion = func() string { return "16.3.5" }
+	t.Cleanup(func() { ompVersion = was })
+	if err := omp(home).Field("model").Set("magpie/resp/grok-5"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(home, ".omp", "agent", "models.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var omps map[string]any
+	if err := yaml.Unmarshal(b, &omps); err != nil {
+		t.Fatal(err)
+	}
+	op := omps["providers"].(map[string]any)["magpie"].(map[string]any)
+	if op["api"] != "openai-completions" {
+		t.Errorf("omp provider: %v", op["api"])
+	}
+	seen := 0
+	for _, raw := range op["models"].([]any) {
+		m := raw.(map[string]any)
+		if id := m["id"]; id == "group/mixed" || id == "group/nested" {
+			seen++
+			if m["api"] != nil {
+				t.Errorf("omp %s: api %v, want none", id, m["api"])
+			}
+		}
+	}
+	if seen != 2 {
+		t.Errorf("omp lists %d of the mixed groups: %s", seen, b)
 	}
 }
