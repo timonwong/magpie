@@ -2378,11 +2378,25 @@ func buildEntries() []Entry { return entriesOff(disabledNow()) }
 
 // entriesOff is the providers' catalog less the models off reports.
 func entriesOff(off func(pid, model string) bool) []Entry {
+	return entriesOf(Provider.On, off)
+}
+
+// heldOffEntries are the models of the providers the user switched off,
+// which the groups magpie finds keep (foundFrom). One without a key, a
+// plugin not signed in, finds no group.
+func heldOffEntries() []Entry {
+	return heldOf("off entries", func() []Entry {
+		return slices.Clip(entriesOf(func(p Provider) bool { return p.Ready() && p.Off }, disabledNow()))
+	})
+}
+
+// entriesOf is the catalog of the providers of, less the models off reports.
+func entriesOf(of func(Provider) bool, off func(pid, model string) bool) []Entry {
 	var out []Entry
 	s := settings.Load()
 	gone := retiredNow() // its vendor said it is retired (retired.go)
 	for _, p := range All() {
-		if !p.On() || p.DecideOnly() { // a dedicated decision API only routes
+		if !of(p) || p.DecideOnly() { // a dedicated decision API only routes
 			continue
 		}
 		for _, m := range p.Exposed() {

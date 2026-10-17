@@ -21,6 +21,7 @@ package provider
 // into providers.json by hand is cut where it closes.
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -377,7 +378,7 @@ func groupsIn(entries []Entry) []Group {
 	if f.NoAutoGroups {
 		return orderedGroups(out, f.GroupOrder)
 	}
-	for _, g := range autoGroups(entries, heldSettings().ModelSameAs) {
+	for _, g := range foundGroups(entries) {
 		if slices.ContainsFunc(out, func(o Group) bool { return o.ID == g.ID }) {
 			continue // the user changed it: theirs now
 		}
@@ -564,7 +565,41 @@ func AutoStandIn(id string) (string, bool) {
 	return "", false
 }
 
-// autoGroups are the models more than one ready provider serves under the
+// foundGroups are the groups magpie finds (autoGroups) among entries and
+// the models of the providers switched off: one switched off for a while
+// stays in the group, a member the gateway skips (membersIn), rather than
+// taking a group of two away with every agent, rule and group set to it.
+func foundGroups(entries []Entry) []Group {
+	return autoGroups(foundFrom(entries, heldOffEntries()), heldSettings().ModelSameAs)
+}
+
+// foundFrom is entries with idle's models it lacks, each provider's in
+// the Providers order, so a provider on again is back in its place.
+func foundFrom(entries, idle []Entry) []Entry {
+	have := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		have[e.ID] = true
+	}
+	idle = slices.DeleteFunc(slices.Clone(idle), func(e Entry) bool { return have[e.ID] })
+	if len(idle) == 0 {
+		return entries
+	}
+	at := map[string]int{}
+	for i, p := range All() {
+		at[p.ID] = i
+	}
+	pos := func(e Entry) int {
+		if i, ok := at[e.Provider.ID]; ok {
+			return i
+		}
+		return len(at)
+	}
+	out := append(slices.Clone(entries), idle...)
+	slices.SortStableFunc(out, func(a, b Entry) int { return cmp.Compare(pos(a), pos(b)) })
+	return out
+}
+
+// autoGroups are the models more than one provider serves under the
 // same name — however each vendor spells it (see sameModel), or as the
 // user said one is the same as another (same: settings' ModelSameAs) — in
 // the order the providers were added.
@@ -1301,7 +1336,7 @@ func DeleteGroup(id string) error {
 		}
 		return false
 	})
-	if slices.ContainsFunc(autoGroups(providerEntries(), settings.Load().ModelSameAs), func(g Group) bool { return g.ID == id }) {
+	if slices.ContainsFunc(foundGroups(providerEntries()), func(g Group) bool { return g.ID == id }) {
 		f.Groups = append(f.Groups, Group{ID: id, Hidden: true})
 		found = true
 	}
@@ -1482,7 +1517,7 @@ func RenameGroup(from, to string) error {
 		slices.ContainsFunc(f.Groups, func(o Group) bool { return o.ID == to }) {
 		return fmt.Errorf("there is a group %q already", to)
 	}
-	found := slices.ContainsFunc(autoGroups(providerEntries(), settings.Load().ModelSameAs), func(o Group) bool { return o.ID == from })
+	found := slices.ContainsFunc(foundGroups(providerEntries()), func(o Group) bool { return o.ID == from })
 	g.ID, g.Auto, g.Hidden = to, false, false
 	f.Groups = slices.DeleteFunc(f.Groups, func(o Group) bool { return o.ID == from })
 	if found {
