@@ -6,26 +6,40 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/provider"
 	"gopkg.in/yaml.v3"
 )
 
-// Pi's provider is on openai-responses, and each model is asked on the API
-// its provider serves it on, so the gateway relays the request as it is: a
-// Responses-only provider's models and GPT on OpenAI's API take the
-// provider's api; a Messages-only provider's go on anthropic-messages at
-// the gateway; a Chat provider's, and a sign-in's with no API of its own,
-// on openai-completions. A group with a member best on Responses takes the
-// provider's api (#1594: one Chat member put a GPT group on Chat, and its
-// tool-call arguments were held for a Chat answer); a group with none stays
-// on Chat. omp, given the same groups, still asks a mixed one on Chat.
+// Pi's provider is on openai-responses, and each model is asked on an API
+// its provider serves it on, so the gateway relays the request as it is: one
+// best on Messages goes on anthropic-messages at the gateway; one its
+// provider serves on Responses at all, a relay's or a preset's as much as
+// OpenAI's, takes the provider's api; one served on Chat alone, by its URLs
+// or by its list, goes on openai-completions. A group with a member on
+// Responses takes the provider's api (#1594: one Chat member put a GPT group
+// on Chat, and its tool-call arguments were held for a Chat answer); a group
+// with none stays on Chat. omp, given the same groups, still asks a mixed
+// one on Chat. Sign-ins: TestServedOn.
 func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 	home := syncHome(t)
+	groq := provider.Preset("groq")
+	if groq == nil || groq.Chat == "" || groq.Responses == "" {
+		t.Fatalf("groq preset: %+v", groq)
+	}
+	// its list serves glm-5 on Chat alone
+	if err := catalog.SaveLive("listed", "http://127.0.0.1:1/v1", []catalog.Model{{ID: "glm-5", APIs: []string{"chat"}}}); err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []provider.Provider{
 		{ID: "resp", Name: "Resp", Key: "k", Responses: "http://127.0.0.1:1/v1", Models: []string{"grok-5", "gpt-5.5"}},
 		{ID: "openai", Name: "OpenAI", Key: "k", Chat: "https://api.openai.com/v1", Responses: "https://api.openai.com/v1", Models: []string{"gpt-5.5", "whisper-x"}},
 		{ID: "anth", Name: "Anth", Key: "k", Anthropic: "http://127.0.0.1:1", Models: []string{"claude-sonnet-5", "kimi-k3"}},
+		{ID: "both", Name: "Both", Key: "k", Chat: "http://127.0.0.1:1/v1", Responses: "http://127.0.0.1:1/v1", Models: []string{"gpt-5.4", "grok-4.6"}},
+		{ID: "groq", Name: "Groq", Preset: "groq", Key: "k", Chat: groq.Chat, Responses: groq.Responses, Models: []string{"llama-4"}},
+		{ID: "listed", Name: "Listed", Key: "k", Chat: "http://127.0.0.1:1/v1", Responses: "http://127.0.0.1:1/v1", Models: []string{"glm-5"}},
+		{ID: "every", Name: "Every", Key: "k", Chat: "http://127.0.0.1:1/v1", Responses: "http://127.0.0.1:1/v1", Anthropic: "http://127.0.0.1:1", Models: []string{"claude-sonnet-5", "kimi-k3"}},
 	} {
 		if err := provider.Save(p); err != nil {
 			t.Fatal(err)
@@ -38,7 +52,8 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 		{ID: "mixed", Name: "Mixed", Members: []string{"resp/grok-5", "relay/glm-4.6"}},
 		{ID: "claudes", Name: "Claudes", Members: []string{"anth/claude-sonnet-5", "anth/kimi-k3"}},
 		{ID: "outer", Name: "Outer", Members: []string{"group/gpts", "openai/gpt-5.5"}},
-		{ID: "chats", Name: "Chats", Members: []string{"relay/glm-4.6", "openai/whisper-x"}},
+		{ID: "chats", Name: "Chats", Members: []string{"relay/glm-4.6", "listed/glm-5"}},
+		{ID: "relaymix", Name: "Relay mix", Members: []string{"both/grok-4.6", "relay/glm-4.6"}},
 		{ID: "nested", Name: "Nested", Members: []string{"group/mixed", "anth/kimi-k3"}},
 		{ID: "gpt-mix", Name: "GPT mix", Members: []string{"resp/gpt-5.5", "relay/glm-4.6"}},
 	} {
@@ -63,21 +78,28 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 		apis[m["id"].(string)], entries[m["id"].(string)] = m["api"], m
 	}
 	for id, want := range map[string]any{
-		"resp/grok-5":          nil,
-		"resp/gpt-5.5":         nil,
-		"openai/gpt-5.5":       nil,
-		"openai/whisper-x":     "openai-completions",
-		"relay/glm-4.6":        "openai-completions",
-		"anth/claude-sonnet-5": "anthropic-messages",
-		"anth/kimi-k3":         "anthropic-messages",
-		"group/auto-gpt-5-5":   nil,
-		"group/gpts":           nil,
-		"group/outer":          nil,
-		"group/mixed":          nil,
-		"group/nested":         nil,
-		"group/gpt-mix":        nil,
-		"group/claudes":        "openai-completions",
-		"group/chats":          "openai-completions",
+		"resp/grok-5":           nil,
+		"resp/gpt-5.5":          nil,
+		"openai/gpt-5.5":        nil,
+		"openai/whisper-x":      nil,
+		"relay/glm-4.6":         "openai-completions",
+		"both/gpt-5.4":          nil,
+		"both/grok-4.6":         nil,
+		"groq/llama-4":          nil,
+		"listed/glm-5":          "openai-completions",
+		"every/claude-sonnet-5": "anthropic-messages",
+		"every/kimi-k3":         nil,
+		"group/relaymix":        nil,
+		"anth/claude-sonnet-5":  "anthropic-messages",
+		"anth/kimi-k3":          "anthropic-messages",
+		"group/auto-gpt-5-5":    nil,
+		"group/gpts":            nil,
+		"group/outer":           nil,
+		"group/mixed":           nil,
+		"group/nested":          nil,
+		"group/gpt-mix":         nil,
+		"group/claudes":         "openai-completions",
+		"group/chats":           "openai-completions",
 	} {
 		got, ok := apis[id]
 		if !ok {
@@ -103,7 +125,7 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 	}
 	// a GPT is told its cache's lifetime only where the gateway relays the
 	// request as it is: not in a group it may translate for
-	for id, want := range map[string]bool{"resp/gpt-5.5": true, "group/gpts": true, "group/gpt-mix": false} {
+	for id, want := range map[string]bool{"resp/gpt-5.5": true, "group/gpts": true, "group/gpt-mix": false, "both/gpt-5.4": false} {
 		if _, got := entries[id]["promptCache"]; got != want {
 			t.Errorf("%s: promptCache %v, want one: %v", id, entries[id]["promptCache"], want)
 		}
@@ -131,14 +153,14 @@ func TestPiModelsAskedOnTheirNativeAPI(t *testing.T) {
 	seen := 0
 	for _, raw := range op["models"].([]any) {
 		m := raw.(map[string]any)
-		if id := m["id"]; id == "group/mixed" || id == "group/nested" {
+		if id := m["id"]; id == "group/mixed" || id == "group/nested" || id == "group/relaymix" {
 			seen++
 			if m["api"] != nil {
 				t.Errorf("omp %s: api %v, want none", id, m["api"])
 			}
 		}
 	}
-	if seen != 2 {
+	if seen != 3 {
 		t.Errorf("omp lists %d of the mixed groups: %s", seen, b)
 	}
 }

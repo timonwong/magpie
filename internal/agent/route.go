@@ -181,12 +181,13 @@ func magpieModels(agent string) []catalog.Model {
 			if n := e.Provider.Native(e.Model); n != "" {
 				m.APIs = []string{string(n)}
 			}
+			m.OnResponses = onResponses(e.Provider, e.Model)
 		} else {
 			ms := members(e.ID)
 			if allResponses(ms) {
 				m.APIs = []string{string(provider.Responses)}
 			}
-			m.SomeResponses = slices.ContainsFunc(ms, func(m provider.Member) bool { return m.Provider.Native(m.Model) == provider.Responses })
+			m.OnResponses = slices.ContainsFunc(ms, func(m provider.Member) bool { return onResponses(m.Provider, m.Model) })
 		}
 		// the service tiers Codex is offered on it, as the gateway's own
 		// lists offer them: Fast in the Codex CLI magpie writes
@@ -215,6 +216,13 @@ func allResponses(ms []provider.Member) bool {
 		}
 	}
 	return len(ms) > 0
+}
+
+// onResponses is whether p serves model on Responses, first or not, and it
+// isn't best on Messages: ResponsesFirst picks what the gateway translates
+// to, and a request on any Responses URL is relayed as it is.
+func onResponses(p provider.Provider, model string) bool {
+	return p.Native(model) != provider.Anthropic && p.ServedOn(model, provider.Responses)
 }
 
 // maxTokens is the output limit an agent is handed for m, kept within the

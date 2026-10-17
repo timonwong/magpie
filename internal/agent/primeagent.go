@@ -7,7 +7,10 @@ package agent
 // reads both files with Pi's fields and types (pa-core models/custom.rs,
 // settings/types.rs), so magpie wires it as it does Pi:
 // defaultProvider/defaultModel/defaultThinkingLevel in settings.json and
-// magpie as the provider "magpie" in models.json.
+// magpie as the provider "magpie" in models.json, Pi's block whole: on
+// openai-responses, each model's own api where it is asked on another
+// (piAPI), as pa-core takes api as a string and has an openai_responses
+// provider.
 //
 // Its requests carry no User-Agent (its HTTP client sets none), so the key
 // magpie gives it names it (magpie-prime-agent): that is how the gateway

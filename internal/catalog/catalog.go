@@ -38,11 +38,12 @@ type Model struct {
 	// APIs, when the vendor says, are the APIs the model is served on
 	// ("chat", "responses", "anthropic"); empty is not known.
 	APIs []string `json:",omitempty"`
-	// SomeResponses is set on a routing group with a member best served on
-	// Responses, where APIs names one only when all are: Pi asks such a
-	// group there and the gateway translates for the rest. Worked out by
-	// the agent package each time, not kept with a list.
-	SomeResponses bool `json:"-"`
+	// OnResponses is set on a model its provider serves on Responses, first
+	// or not, and not best on Messages, or on a routing group with such a
+	// member: Pi asks it there, where APIs names Responses only when it
+	// comes first (for a group, for every member). Worked out by the agent
+	// package each time, not kept with a list.
+	OnResponses bool `json:"-"`
 	// Images is set on a model that takes images as input.
 	Images bool `json:",omitempty"`
 	// ImageInput is the source's explicit answer; nil means it did not say.

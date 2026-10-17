@@ -566,8 +566,9 @@ func piModelJSON(m catalog.Model, gw, def string) map[string]any {
 	if m.Price != nil {
 		e["cost"] = map[string]any{"input": m.Price.Input, "output": m.Price.Output, "cacheRead": m.Price.CacheRead, "cacheWrite": m.Price.CacheWrite}
 	}
-	// a group on Responses for some of its members may be translated for
-	// the one it picks, so its cache's lifetime isn't the vendor's
+	// a model asked on Responses where it isn't best there, or a group
+	// with members that aren't, may be served by a relay or translated
+	// for, so its cache's lifetime isn't the vendor's
 	relayed := api
 	if api == piResponses && !slices.Contains(m.APIs, string(provider.Responses)) {
 		relayed = ""
@@ -579,14 +580,15 @@ func piModelJSON(m catalog.Model, gw, def string) map[string]any {
 }
 
 // piAPI is the API Pi asks m on under a provider on def, so the gateway
-// relays what Pi sent as it is instead of translating it: one served on
-// OpenAI's Responses API alone, or best there (a ChatGPT sign-in, GPT on
-// OpenAI's API or Copilot's), on Responses; one on Anthropic's Messages API
-// alone on Messages; any other on Chat, a sign-in's with no API of its own
-// included. Under a provider on Responses a group with a member best there
-// goes there too, the gateway translating for the rest (#1594); one with
-// none, or under another provider, goes there only when all its members are
-// (catalog.Model.APIs). An empty def is "".
+// relays what Pi sent as it is instead of translating it: one best on
+// Responses (a ChatGPT sign-in, GPT on OpenAI's API or Copilot's) on
+// Responses; one best on Anthropic's Messages API on Messages; any other on
+// Chat, a sign-in's with no API of its own included. Under a provider on
+// Responses, Pi's and Prime Agent's, a model its provider serves on
+// Responses at all goes there too, a relay's or a preset's, and so does a
+// group with such a member, the gateway translating for the rest (#1594).
+// Under another provider (StepCode's) a group goes there only when all its
+// members are best there (catalog.Model.APIs). An empty def is "".
 func piAPI(m catalog.Model, def string) string {
 	switch {
 	case def == "":
@@ -595,7 +597,7 @@ func piAPI(m catalog.Model, def string) string {
 		return piResponses
 	case slices.Contains(m.APIs, string(provider.Anthropic)):
 		return piMessages
-	case def == piResponses && m.SomeResponses:
+	case def == piResponses && m.OnResponses:
 		return piResponses
 	}
 	return piChat

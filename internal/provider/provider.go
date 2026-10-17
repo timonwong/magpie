@@ -1510,19 +1510,7 @@ func openAIModel(model string) bool {
 // request is translated anyway: a sign-in served through its agent's own
 // API (Claude Code's binary, Cursor, Devin, Kiro, Code Assist).
 func (p Provider) Native(model string) Protocol {
-	if p.Account != nil {
-		switch p.Account.Agent {
-		case "claude", "cursor", "devin", "kiro":
-			return ""
-		}
-	}
-	apis := p.APIs(model)
-	var out []Protocol
-	for _, pr := range p.Speaks() {
-		if slices.Contains(Protocols, pr) && (apis == nil || slices.Contains(apis, pr)) {
-			out = append(out, pr)
-		}
-	}
+	out := p.served(model)
 	if len(out) == 0 {
 		return ""
 	}
@@ -1533,6 +1521,31 @@ func (p Provider) Native(model string) Protocol {
 		return Anthropic
 	}
 	return out[0]
+}
+
+// ServedOn reports whether p serves model on pr itself, preferred or not:
+// the gateway relays a request on it as it is.
+func (p Provider) ServedOn(model string, pr Protocol) bool {
+	return slices.Contains(p.served(model), pr)
+}
+
+// served are the APIs p serves model on itself, preferred first; none for
+// a sign-in served through its agent's own API (Native).
+func (p Provider) served(model string) []Protocol {
+	if p.Account != nil {
+		switch p.Account.Agent {
+		case "claude", "cursor", "devin", "kiro":
+			return nil
+		}
+	}
+	apis := p.APIs(model)
+	var out []Protocol
+	for _, pr := range p.Speaks() {
+		if slices.Contains(Protocols, pr) && (apis == nil || slices.Contains(apis, pr)) {
+			out = append(out, pr)
+		}
+	}
+	return out
 }
 
 // Host is the vendor's API host, for display.

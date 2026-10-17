@@ -64,7 +64,7 @@ func TestPrimeAgent(t *testing.T) {
 		t.Fatalf("their provider:\n%s", readFile(models))
 	}
 	got := file.Providers["magpie"]
-	if got["baseUrl"] != gateway.URL()+"/v1" || got["api"] != "openai-completions" || got["apiKey"] != "magpie-prime-agent" {
+	if got["baseUrl"] != gateway.URL()+"/v1" || got["api"] != "openai-responses" || got["apiKey"] != "magpie-prime-agent" {
 		t.Fatalf("models:\n%s", readFile(models))
 	}
 	// Pi's block, but for the key: the fields Prime Agent's models.json
