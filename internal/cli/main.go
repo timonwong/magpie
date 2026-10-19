@@ -21,6 +21,7 @@ import (
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/imagemcp"
 	"github.com/yetone/magpie/internal/netproxy"
+	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/profile"
@@ -213,6 +214,37 @@ func runTUI() error {
 // tuiRun is tui.Run; a var so tests can stand in for it.
 var tuiRun = tui.Run
 
+// leavePlugins has a magpie that serves the gateway hold the lock that
+// says so, and one that doesn't leave the plugins to the magpie holding
+// it: a host of its own would load every plugin a second time beside that
+// one's, and a plugin keeping one service per data folder (a lock file, a
+// port) fails in it on every command.
+func leavePlugins(args []string) {
+	if servesGateway(args) {
+		plugin.HoldHost()
+		plugin.LeaveToServer(false)
+		return
+	}
+	plugin.LeaveToServer(plugin.HostHeldElsewhere())
+}
+
+// servesGateway is whether the command runs a magpie that serves the
+// gateway, or takes it over once the one serving it stops: its plugins
+// are its own to run.
+func servesGateway(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(args[0]), "magpie:") {
+		return hasGUI
+	}
+	switch args[0] {
+	case "tui", "web", "app", "gui", "tray", "-Embedding", "panel", "serve":
+		return true
+	}
+	return false
+}
+
 func run(args []string) error {
 	// before anything is read, moved or started: --help on any command
 	// prints its usage and does nothing else
@@ -244,6 +276,9 @@ func run(args []string) error {
 	// below write the files it may still be writing
 	update.AwaitPredecessor()
 	makeDirs()
+	// after the magpie an update replaces has let go of the plugins' lock,
+	// and before anything reads the providers, which can start the host
+	leavePlugins(args)
 	settings.Migrate()
 	// every built-in plugin starts on (plugins.yml), on a new install too
 	if _, err := pluginrt.Settle(); err != nil {
