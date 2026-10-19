@@ -584,6 +584,22 @@ func Settle() {
 	cancelCatalogSyncs()
 }
 
+// leftToServer is LeaveToServer's switch.
+var leftToServer atomic.Bool
+
+// LeaveToServer has this process, which doesn't serve the gateway, leave
+// the plugins to the magpie that does for the same folder: Cached reads
+// the providers that magpie keeps on disk and starts no host for them. A
+// second host loads every plugin again, and a plugin keeping one service
+// per data folder (a lock file, a port) fails in it. Off, or when whether
+// one serves isn't known, the plugins are asked as before.
+func LeaveToServer(on bool) { leftToServer.Store(on) }
+
+// LeftToServer is whether the plugins are left to the magpie serving this
+// folder (LeaveToServer): a read-only listing then shows what Cached has
+// rather than starting a host to ask.
+func LeftToServer() bool { return leftToServer.Load() }
+
 // Cached is the plugins' providers as last asked, without starting the
 // host: what is known of them when magpie has only just started. A
 // provider's sign-in is read afresh from plugin-auth.json.
@@ -631,7 +647,7 @@ func Cached() []Provider {
 		}
 		out = append(out, p)
 	}
-	if !good && len(l.Plugins) > 0 {
+	if !good && len(l.Plugins) > 0 && !LeftToServer() {
 		// refreshed in the background: a sign-in or the plugins changed.
 		// Whether one is already in flight is read and set under one lock,
 		// so two callers asking at once start one refresh, not two.

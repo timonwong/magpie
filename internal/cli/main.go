@@ -21,6 +21,7 @@ import (
 	"github.com/yetone/magpie/internal/gateway"
 	"github.com/yetone/magpie/internal/imagemcp"
 	"github.com/yetone/magpie/internal/netproxy"
+	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/proc"
 	"github.com/yetone/magpie/internal/profile"
@@ -213,6 +214,32 @@ func runTUI() error {
 // tuiRun is tui.Run; a var so tests can stand in for it.
 var tuiRun = tui.Run
 
+// leavePlugins has a command that doesn't serve the gateway leave the
+// plugins to the magpie serving this folder, when one does: a host of its
+// own would load every plugin a second time beside that one's, and a
+// plugin keeping one service per data folder (a lock file, a port) fails
+// in it on every command.
+func leavePlugins(args []string) {
+	plugin.LeaveToServer(!servesGateway(args) && gateway.ServedHere())
+}
+
+// servesGateway is whether the command runs a magpie that serves the
+// gateway, or takes it over once the one serving it stops: its plugins
+// are its own to run.
+func servesGateway(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(args[0]), "magpie:") {
+		return hasGUI
+	}
+	switch args[0] {
+	case "tui", "web", "app", "gui", "tray", "-Embedding", "panel", "serve", "daemon":
+		return true
+	}
+	return false
+}
+
 func run(args []string) error {
 	// before anything is read, moved or started: --help on any command
 	// prints its usage and does nothing else
@@ -231,6 +258,8 @@ func run(args []string) error {
 		// the running magpie's CPU profile: asks it, and moves nothing here
 		return cpuCmd(args[1:])
 	}
+	// before anything reads the providers, which asks the plugins
+	leavePlugins(args)
 	if len(args) == 2 && args[0] == agent.DryRunArg {
 		// an agent disconnected on a copy of its files under a temporary
 		// home, for the Agents page to show what disconnecting changes

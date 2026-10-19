@@ -183,13 +183,22 @@ func listPlugins(ctx context.Context, asJSON bool) error {
 		fmt.Println("No plugins. Add one: magpie plugin add <npm package | git repo | path>")
 		return nil
 	}
-	loaded, lerr := plugin.Plugins(ctx)
+	var loaded []plugin.Loaded
+	var ps []plugin.Provider
+	var lerr, perr error
+	if plugin.LeftToServer() {
+		// the magpie serving this folder has the plugins loaded: their
+		// providers as it keeps them, with no second host started for them
+		ps = plugin.Cached()
+	} else {
+		loaded, lerr = plugin.Plugins(ctx)
+		ps, perr = plugin.Providers(ctx)
+	}
 	errs := map[string]string{}
 	for _, p := range loaded {
 		errs[p.Spec] = p.Error
 	}
 	clashes := plugin.Clashes(loaded)
-	ps, perr := plugin.Providers(ctx)
 	mws := middleware.States()
 	var pts []plugin.PluginTools
 	for _, p := range loaded {

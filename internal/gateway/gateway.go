@@ -262,6 +262,9 @@ type Served struct {
 	Running bool   // a magpie gateway answers
 	Window  bool   // its routing can be watched in its window (#110)
 	Version string // its version; "" from one that doesn't say
+	// Folder marks the magpie folder it keeps (folderMark); "" from one
+	// that doesn't say, or asked from another machine
+	Folder string
 }
 
 // ServedBy asks the address which magpie answers there. Another magpie can
@@ -282,11 +285,28 @@ func ServedBy() Served {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 		Window  bool   `json:"window"`
+		Folder  string `json:"folder"`
 	}
 	if decodeJSON(b, &info) != nil || info.Name != "magpie" {
 		return Served{Running: bytes.Contains(b, []byte(`"magpie"`)), Window: bytes.Contains(b, []byte(`"window":true`))}
 	}
-	return Served{Running: true, Window: info.Window, Version: info.Version}
+	return Served{Running: true, Window: info.Window, Version: info.Version, Folder: info.Folder}
+}
+
+// ServedHere is whether the magpie gateway at the address keeps this
+// process's folder, its plugins' providers on this disk among what it
+// keeps. One keeping another (a sandbox's, a container's, another
+// user's), one that doesn't say, and none answering are all false.
+func ServedHere() bool {
+	s := ServedBy()
+	return s.Running && s.Folder != "" && s.Folder == folderMark()
+}
+
+// folderMark names the folder magpie keeps its files in without saying
+// the path, which holds the user's name.
+func folderMark() string {
+	sum := sha256.Sum256([]byte(filepath.Clean(settings.Dir())))
+	return hex.EncodeToString(sum[:6])
 }
 
 // Taken reports whether anything accepts connections at the gateway's
@@ -706,8 +726,14 @@ func responsesOverHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"name": "magpie", "version": Version, "models": len(provider.Catalog()), "window": Window,
-		"apis": []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/systemone", "/v1beta/models/{model}:generateContent", "/v1/images/generations", "/v1/images/edits", "/v1/videos", "/v1/embeddings", "/v1/rerank", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/magpie/quotas", "/v1/magpie/quotas/history", "/v1/magpie/usage", "/v1/magpie/usage/requests", "/v1/magpie/route", SearchMCPPath, VisionMCPPath, ToolsMCPPath}})
+	m := map[string]any{"name": "magpie", "version": Version, "models": len(provider.Catalog()), "window": Window,
+		"apis": []string{"/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/systemone", "/v1beta/models/{model}:generateContent", "/v1/images/generations", "/v1/images/edits", "/v1/videos", "/v1/embeddings", "/v1/rerank", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/magpie/quotas", "/v1/magpie/quotas/history", "/v1/magpie/usage", "/v1/magpie/usage/requests", "/v1/magpie/route", SearchMCPPath, VisionMCPPath, ToolsMCPPath}}
+	if local(r) {
+		// for a magpie command on this machine to tell whether this one
+		// keeps its folder (ServedHere)
+		m["folder"] = folderMark()
+	}
+	writeJSON(w, 200, m)
 }
 
 // quotas is what is left of every subscription, plan and key magpie has,
