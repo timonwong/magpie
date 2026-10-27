@@ -870,6 +870,7 @@ func membersOff(entries []Entry, all []Group, g Group, off func(pid, model strin
 	var out []Member
 	seen := map[string]int{} // where in out
 	at := 0
+	find := entriesBy(entries)
 	var walk func(g Group, path []string, via []Group, in []string)
 	walk = func(g Group, path []string, via []Group, in []string) {
 		for _, id := range g.routes() {
@@ -886,6 +887,11 @@ func membersOff(entries []Entry, all []Group, g Group, off func(pid, model strin
 			p, m, ok := resolveIn(entries, model)
 			key := WithMemberEffort(p.ID+"/"+m, effort)
 			if !ok {
+				continue
+			}
+			// a model the user unpicked from its provider since the group
+			// took it is left out, as the group's card shows it struck
+			if len(p.Models) > 0 && find(p.ID, m) < 0 && !p.DecidesModel(m) {
 				continue
 			}
 			mem := Member{ID: here[0], Path: here, Via: via, Provider: p, Model: m, Effort: effort, Fast: g.IsFast(id), At: at}
