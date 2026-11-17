@@ -2165,7 +2165,7 @@ func callTo(item map[string]any, name string, named map[string]nsTool) map[strin
 		// Codex runs its tool search itself, from the item it knows it by
 		args, _ := item["arguments"].(string)
 		delete(item, "name")
-		item["type"], item["execution"], item["arguments"] = "tool_search_call", "client", parseArgs(args)
+		item["type"], item["execution"], item["arguments"] = "tool_search_call", "client", searchCallArgs(args)
 	} else if q.Custom {
 		// a custom tool's call carries its free-form input, not arguments
 		args, _ := item["arguments"].(string)

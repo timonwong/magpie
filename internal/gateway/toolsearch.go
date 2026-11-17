@@ -205,6 +205,17 @@ func searchCall(it map[string]any) bool {
 	}
 	args, _ := it["arguments"].(string)
 	delete(it, "name")
-	it["type"], it["execution"], it["arguments"] = "tool_search_call", "client", parseArgs(args)
+	it["type"], it["execution"], it["arguments"] = "tool_search_call", "client", searchCallArgs(args)
 	return true
+}
+
+// searchCallArgs is a model's search arguments as the tool_search_call Codex
+// runs carries them: an object, its whole floats written as integers.
+// Codex's schema says limit is a "number" but it reads a usize, and turns
+// 8.0 away under an empty call_id, so the model never learns its search
+// failed. A relayed call is made here, after the stream's integer tidy
+// has passed it by as a function_call, so the rule is applied where every
+// tool_search_call is made (callTo too).
+func searchCallArgs(args string) json.RawMessage {
+	return parseArgs(wholeArgs(args))
 }
